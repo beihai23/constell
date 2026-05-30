@@ -110,6 +110,406 @@ WS Gateway 持有连接状态，不是无状态服务：
    - 建立：认证 JWT → 写本地 conn map → 写 Redis `uid→gw_id` → NATS 广播 user_online
    - 断开：移除本地 conn map → 删除 Redis key → NATS 广播 user_offline
 
+## 数据模型
+
+### users 表
+
+```sql
+CREATE TABLE users (
+    id          BIGSERIAL PRIMARY KEY,
+    username    VARCHAR(32) NOT NULL UNIQUE,
+    email       VARCHAR(255) NOT NULL UNIQUE,
+    password    VARCHAR(255) NOT NULL,       -- bcrypt hash
+    nickname    VARCHAR(64) NOT NULL DEFAULT '',
+    avatar_url  TEXT NOT NULL DEFAULT '',
+    status_msg  VARCHAR(128) NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_email ON users(email);
+-- 全文搜索
+ALTER TABLE users ADD COLUMN search_vector tsvector;
+CREATE INDEX idx_users_search ON users USING GIN(search_vector);
+-- 触发器: 昵称变更时自动更新 search_vector
+```
+
+### user_relations 表
+
+```sql
+CREATE TABLE user_relations (
+    user_id       BIGINT NOT NULL REFERENCES users(id),
+    target_id     BIGINT NOT NULL REFERENCES users(id),
+    relation_type VARCHAR(16) NOT NULL,  -- 'friend' | 'blocked'
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, target_id)
+);
+CREATE INDEX idx_user_relations_target ON user_relations(target_id, relation_type);
+```
+
+### dm_conversations 表
+
+```sql
+CREATE TABLE dm_conversations (
+    id              BIGSERIAL PRIMARY KEY,
+    user_a_id       BIGINT NOT NULL REFERENCES users(id),
+    user_b_id       BIGINT NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_a_id, user_b_id),
+    CONSTRAINT user_a_less_than_b CHECK (user_a_id < user_b_id)
+);
+CREATE INDEX idx_dm_conversations_user_a ON dm_conversations(user_a_id);
+CREATE INDEX idx_dm_conversations_user_b ON dm_conversations(user_b_id);
+```
+
+**conversation_id 生成规则**：两个 user_id 排序后较小的为 user_a，较大的为 user_b。DM 消息通过 (user_a_id, user_b_id) 唯一定位一个会话。
+
+### dm_messages 表
+
+```sql
+CREATE TABLE dm_messages (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id BIGINT NOT NULL REFERENCES dm_conversations(id),
+    sender_id       BIGINT NOT NULL REFERENCES users(id),
+    content_type    VARCHAR(16) NOT NULL DEFAULT 'text',  -- 'text' | 'image' | 'file'
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_dm_messages_conv_time ON dm_messages(conversation_id, created_at DESC);
+```
+
+### servers 表
+
+```sql
+CREATE TABLE servers (
+    id          BIGSERIAL PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL,
+    icon_url    TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    owner_id    BIGINT NOT NULL REFERENCES users(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### channels 表
+
+```sql
+CREATE TABLE channels (
+    id          BIGSERIAL PRIMARY KEY,
+    server_id   BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name        VARCHAR(100) NOT NULL,
+    topic       VARCHAR(256) NOT NULL DEFAULT '',
+    position    INT NOT NULL DEFAULT 0,
+    type        VARCHAR(16) NOT NULL DEFAULT 'text',  -- 'text' | 'announcement'
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_channels_server ON channels(server_id, position);
+```
+
+### server_members 表
+
+```sql
+CREATE TABLE server_members (
+    server_id   BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id     BIGINT NOT NULL REFERENCES users(id),
+    joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (server_id, user_id)
+);
+CREATE INDEX idx_server_members_user ON server_members(user_id);
+```
+
+### roles 表
+
+```sql
+CREATE TABLE roles (
+    id          BIGSERIAL PRIMARY KEY,
+    server_id   BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name        VARCHAR(64) NOT NULL,
+    color       INT NOT NULL DEFAULT 0,
+    permissions BIGINT NOT NULL DEFAULT 0,    -- 位掩码
+    position    INT NOT NULL DEFAULT 0,
+    is_default  BOOLEAN NOT NULL DEFAULT false -- 新成员自动获得
+);
+CREATE INDEX idx_roles_server ON roles(server_id, position);
+
+-- 关联表: 成员 ↔ 角色 (多对多)
+CREATE TABLE member_roles (
+    role_id   BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    user_id   BIGINT NOT NULL,
+    server_id BIGINT NOT NULL,
+    PRIMARY KEY (role_id, user_id, server_id),
+    FOREIGN KEY (server_id, user_id) REFERENCES server_members(server_id, user_id) ON DELETE CASCADE
+);
+```
+
+### channel_messages 表
+
+```sql
+CREATE TABLE channel_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    channel_id  BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    sender_id   BIGINT NOT NULL REFERENCES users(id),
+    content_type VARCHAR(16) NOT NULL DEFAULT 'text',
+    content     TEXT NOT NULL,
+    mentions    BIGINT[] NOT NULL DEFAULT '{}',  -- 被 @提及的用户 ID 列表
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_channel_messages_channel_time ON channel_messages(channel_id, created_at DESC);
+-- 全文搜索
+ALTER TABLE channel_messages ADD COLUMN search_vector tsvector;
+CREATE INDEX idx_channel_messages_search ON channel_messages USING GIN(search_vector);
+```
+
+## 权限模型
+
+采用 Discord 风格的位掩码权限系统。
+
+### 权限位定义
+
+```
+ADMINISTRATOR       = 1 << 0   // 绕过所有权限检查
+MANAGE_SERVER       = 1 << 1   // 修改服务器设置
+MANAGE_CHANNELS     = 1 << 2   // 创建/编辑/删除频道
+MANAGE_ROLES        = 1 << 3   // 管理角色
+KICK_MEMBERS        = 1 << 4   // 踢出成员
+BAN_MEMBERS         = 1 << 5   // 封禁成员
+MANAGE_MESSAGES     = 1 << 6   // 删除他人消息
+SEND_MESSAGES       = 1 << 7   // 发送消息
+READ_MESSAGES       = 1 << 8   // 查看频道消息
+MENTION_EVERYONE    = 1 << 9   // @everyone
+ATTACH_FILES        = 1 << 10  // 上传附件
+```
+
+### 权限计算规则
+
+```
+1. 获取用户在 Server 中的所有 Role
+2. 合并所有 Role 的 permissions (位或 OR)
+3. 如果拥有 ADMINISTRATOR 位 → 允许一切
+4. 检查频道级别的 Permission Overwrite:
+   - @everyone 角色 overwrite → 先应用
+   - 用户所在 Role overwrite → 再应用
+   - 用户特定 overwrite → 最后应用
+   - 每个 overwrite: deny 先清除位，allow 再设置位
+5. 最终结果 = 计算后的权限位掩码
+```
+
+### Permission Overwrite (未来实现，MVP 简化)
+
+MVP 阶段：成员 = 有 READ_MESSAGES + SEND_MESSAGES，非成员 = 无权限。频道级别的 overwrite 在后续版本添加。
+
+## 服务层 Proto 接口定义
+
+### Auth Service (auth/v1/auth.proto)
+
+```protobuf
+service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+}
+
+message RegisterRequest { string username = 1; string email = 2; string password = 3; }
+message RegisterResponse { string user_id = 1; string access_token = 2; string refresh_token = 3; }
+message LoginRequest { string email = 1; string password = 2; }
+message LoginResponse { string user_id = 1; string access_token = 2; string refresh_token = 3; }
+message RefreshTokenRequest { string refresh_token = 1; }
+message RefreshTokenResponse { string access_token = 1; string refresh_token = 2; }
+```
+
+### User Service (user/v1/user.proto)
+
+```protobuf
+service UserService {
+  // Profile
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // Relations
+  rpc GetRelation(GetRelationRequest) returns (GetRelationResponse);
+  rpc BlockUser(BlockUserRequest) returns (BlockUserResponse);
+  rpc UnblockUser(UnblockUserRequest) returns (UnblockUserResponse);
+  rpc ListFriends(ListFriendsRequest) returns (ListFriendsResponse);
+
+  // DM
+  rpc SendDM(SendDMRequest) returns (SendDMResponse);
+  rpc GetDMHistory(GetDMHistoryRequest) returns (GetDMHistoryResponse);
+  rpc GetDMConversations(GetDMConversationsRequest) returns (GetDMConversationsResponse);
+
+  // Internal: peer fill for groupcache
+  rpc GetLocalUser(GetLocalUserRequest) returns (GetLocalUserResponse);
+  rpc GetLocalRelation(GetLocalRelationRequest) returns (GetLocalRelationResponse);
+}
+
+message GetUserRequest { string user_id = 1; }
+message GetUserResponse { string user_id = 1; string username = 2; string nickname = 3; string avatar_url = 4; string status_msg = 5; }
+message UpdateProfileRequest { string user_id = 1; optional string nickname = 2; optional string avatar_url = 3; optional string status_msg = 4; }
+message UpdateProfileResponse { GetUserResponse user = 1; }
+
+message GetRelationRequest { string user_id = 1; string target_id = 2; }
+message GetRelationResponse { bool is_friend = 1; bool is_blocked = 2; }
+message BlockUserRequest { string user_id = 1; string target_id = 2; }
+message BlockUserResponse {}
+message UnblockUserRequest { string user_id = 1; string target_id = 2; }
+message UnblockUserResponse {}
+message ListFriendsRequest { string user_id = 1; int32 limit = 2; string cursor = 3; }
+message ListFriendsResponse { repeated GetUserResponse friends = 1; string next_cursor = 2; }
+
+message SendDMRequest { string sender_id = 1; string receiver_id = 2; string content_type = 3; string content = 4; }
+message SendDMResponse { string message_id = 1; string created_at = 2; }
+message GetDMHistoryRequest { string user_id = 1; string peer_id = 2; int32 limit = 3; string cursor = 4; }
+message GetDMHistoryResponse { repeated DMMessage messages = 1; string next_cursor = 2; }
+message GetDMConversationsRequest { string user_id = 1; int32 limit = 2; string cursor = 3; }
+message GetDMConversationsResponse { repeated DMConversation conversations = 1; string next_cursor = 2; }
+
+message DMMessage { string id = 1; string sender_id = 2; string content_type = 3; string content = 4; string created_at = 5; }
+message DMConversation { string peer_id = 1; GetUserResponse peer = 2; string last_message = 3; string last_message_at = 4; }
+
+// Internal groupcache peer fill
+message GetLocalUserRequest { string user_id = 1; }
+message GetLocalUserResponse { GetUserResponse user = 1; }
+message GetLocalRelationRequest { string user_id = 1; string target_id = 2; }
+message GetLocalRelationResponse { bool is_friend = 1; bool is_blocked = 2; }
+```
+
+### Community Service (community/v1/community.proto)
+
+```protobuf
+service CommunityService {
+  // Server
+  rpc CreateServer(CreateServerRequest) returns (CreateServerResponse);
+  rpc GetServer(GetServerRequest) returns (GetServerResponse);
+  rpc UpdateServer(UpdateServerRequest) returns (UpdateServerResponse);
+  rpc ListUserServers(ListUserServersRequest) returns (ListUserServersResponse);
+
+  // Channel
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  rpc GetChannels(GetChannelsRequest) returns (GetChannelsResponse);
+  rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+
+  // Members
+  rpc AddMember(AddMemberRequest) returns (AddMemberResponse);
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+
+  // Roles
+  rpc CreateRole(CreateRoleRequest) returns (CreateRoleResponse);
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+
+  // Messages
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+
+  // Internal: peer fill for groupcache
+  rpc GetLocalServer(GetLocalServerRequest) returns (GetLocalServerResponse);
+  rpc GetLocalMembers(GetLocalMembersRequest) returns (GetLocalMembersResponse);
+  rpc GetLocalRoles(GetLocalRolesRequest) returns (GetLocalRolesResponse);
+}
+
+// Server messages
+message Server { string id = 1; string name = 2; string icon_url = 3; string description = 4; string owner_id = 5; string created_at = 6; }
+message CreateServerRequest { string name = 1; string owner_id = 2; }
+message CreateServerResponse { Server server = 1; }
+message GetServerRequest { string server_id = 1; }
+message GetServerResponse { Server server = 1; }
+message UpdateServerRequest { string server_id = 1; string name = 2; string icon_url = 3; string description = 4; }
+message UpdateServerResponse { Server server = 1; }
+message ListUserServersRequest { string user_id = 1; }
+message ListUserServersResponse { repeated Server servers = 1; }
+
+// Channel messages
+message Channel { string id = 1; string server_id = 2; string name = 3; string topic = 4; int32 position = 5; string type = 6; }
+message CreateChannelRequest { string server_id = 1; string name = 2; string type = 3; }
+message CreateChannelResponse { Channel channel = 1; }
+message GetChannelsRequest { string server_id = 1; }
+message GetChannelsResponse { repeated Channel channels = 1; }
+message UpdateChannelRequest { string channel_id = 1; string name = 2; string topic = 3; int32 position = 4; }
+message UpdateChannelResponse { Channel channel = 1; }
+
+// Member messages
+message ServerMember { string user_id = 1; string server_id = 2; string joined_at = 3; repeated string role_ids = 4; }
+message AddMemberRequest { string server_id = 1; string user_id = 2; }
+message AddMemberResponse { ServerMember member = 1; }
+message RemoveMemberRequest { string server_id = 1; string user_id = 2; }
+message RemoveMemberResponse {}
+message ListMembersRequest { string server_id = 1; int32 limit = 2; string cursor = 3; }
+message ListMembersResponse { repeated ServerMember members = 1; string next_cursor = 2; }
+
+// Role messages
+message Role { string id = 1; string server_id = 2; string name = 3; int32 color = 4; int64 permissions = 5; int32 position = 6; bool is_default = 7; }
+message CreateRoleRequest { string server_id = 1; string name = 2; int64 permissions = 3; }
+message CreateRoleResponse { Role role = 1; }
+message AssignRoleRequest { string server_id = 1; string user_id = 2; string role_id = 3; }
+message AssignRoleResponse {}
+
+// Channel messages (content)
+message ChannelMessage { string id = 1; string channel_id = 2; string sender_id = 3; string content_type = 4; string content = 5; repeated string mentions = 6; string created_at = 7; }
+message SendMessageRequest { string channel_id = 1; string sender_id = 2; string content_type = 3; string content = 4; repeated string mentions = 5; }
+message SendMessageResponse { string message_id = 1; string created_at = 2; }
+message GetHistoryRequest { string channel_id = 1; int32 limit = 2; string cursor = 3; }
+message GetHistoryResponse { repeated ChannelMessage messages = 1; string next_cursor = 2; }
+
+// Internal groupcache peer fill
+message GetLocalServerRequest { string server_id = 1; }
+message GetLocalServerResponse { Server server = 1; repeated Channel channels = 2; }
+message GetLocalMembersRequest { string server_id = 1; }
+message GetLocalMembersResponse { repeated ServerMember members = 1; }
+message GetLocalRolesRequest { string server_id = 1; }
+message GetLocalRolesResponse { repeated Role roles = 1; }
+```
+
+## NATS 事件定义
+
+所有事件使用 JetStream 持久化，stream 名 `constell`，subject 前缀 `constell.>`。
+
+| Subject | 发布者 | 载荷 | 消费者 |
+|---------|--------|------|--------|
+| `constell.dm.created` | User Service | `{conversation_id, user_a_id, user_b_id, message_id, content, created_at}` | Search Svc, Notify Svc |
+| `constell.message.created` | Community Service | `{message_id, channel_id, server_id, sender_id, content, mentions[], created_at}` | Search Svc, Notify Svc, WS GW (via gw.push.*) |
+| `constell.member.joined` | Community Service | `{server_id, user_id}` | User Svc (更新 joined_servers 缓存) |
+| `constell.member.left` | Community Service | `{server_id, user_id}` | User Svc |
+| `constell.user.online` | WS Gateway | `{user_id, gw_id}` | User Svc (更新在线状态) |
+| `constell.user.offline` | WS Gateway | `{user_id}` | User Svc |
+| `gw.push.{gw_id}` | User Svc / Community Svc | `{targets: [uid], payload: {...}}` | WS GW (指定实例) |
+
+## JWT 规范
+
+- **算法**: HS256
+- **Claims**: `sub` = user_id (string), `iat` = issued at, `exp` = expiry
+- **Access Token**: 有效期 15 分钟
+- **Refresh Token**: 有效期 7 天，存储在 Redis `refresh:{token_hash} → user_id`
+- **Header**: `Authorization: Bearer <access_token>`
+- **签发**: Auth Service
+- **验证**: API Gateway / WS Gateway 中间件
+
+## 错误码规范
+
+服务间使用 Connect-RPC 标准错误码：
+
+| 场景 | Connect Code | 说明 |
+|------|-------------|------|
+| 未认证 | CodeUnauthenticated | JWT 缺失或过期 |
+| 权限不足 | CodePermissionDenied | 无 SEND_MESSAGES 等权限 |
+| 资源不存在 | CodeNotFound | 用户/频道/Server 不存在 |
+| 参数错误 | CodeInvalidArgument | 字段校验失败 |
+| 已存在 | CodeAlreadyExists | 用户名/邮箱已注册 |
+| 被拉黑 | CodePermissionDenied | DM 对方已拉黑发送者 |
+| 内部错误 | CodeInternal | 未预期错误 |
+
+## 服务端口分配
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| API Gateway | 8080 | HTTP REST 入口 |
+| WS Gateway | 8081 | WebSocket 入口 |
+| Auth Service | 9081 | Connect-RPC (内部) |
+| User Service | 9082 | Connect-RPC (内部) |
+| Community Service | 9083 | Connect-RPC (内部) |
+| File Service | 9084 | Connect-RPC (内部) |
+| Search Service | 9085 | Connect-RPC (内部) |
+| Notify Service | 9086 | Connect-RPC (内部) |
+
 ## 领域边界
 
 ### User Service — 用户间的一切
