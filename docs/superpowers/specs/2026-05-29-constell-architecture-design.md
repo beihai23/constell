@@ -130,6 +130,48 @@ DM 是用户关系的延伸，不属于 Community 领域。DM 消息存储在独
 - **群聊消息**：频道内消息的存储、历史查询
 - **消息交互**：已读状态、Reaction、Pin
 
+## 协议分层与 Proto 定位
+
+系统存在两层独立的 Protobuf 协议，分别服务于不同的通信场景：
+
+### 服务层 Proto (Connect-RPC)
+
+定义在 `proto/auth/`、`proto/user/`、`proto/community/` 中，是后端微服务之间的内部接口。
+
+- 传输方式：Connect-RPC over HTTP（服务间同步调用）
+- 消费者：API Gateway、WS Gateway、其他后端服务
+- 不直接暴露给客户端
+- 包含完整的业务 RPC：`SendMessage`、`GetHistory`、`CreateServer` 等
+
+```
+                    Connect-RPC (内部)
+API Gateway ──────────────────────→ User Service
+               ──────────────────────→ Community Service
+WS Gateway   ──────────────────────→ Auth Service
+               ──────────────────────→ ...
+```
+
+### 客户端层 Proto (WebSocket)
+
+定义在 `proto/gateway/` 中，是客户端与 WS Gateway 之间的协议。
+
+- 传输方式：WebSocket + Protobuf 二进制帧
+- 消费者：Web 客户端、移动端 SDK
+- 包含客户端操作：`send_dm`、`send_channel_message`、`subscribe_channel` 等
+- WS Gateway 负责将客户端协议翻译为服务层 Connect-RPC 调用
+
+```
+客户端 ←── WebSocket + Protobuf ──→ WS Gateway ──Connect-RPC──→ 后端服务
+         (gateway/v1 proto)              (协议翻译)
+```
+
+### 为什么分成两层
+
+1. **关注点不同**：服务层关注业务语义（权限、存储），客户端层关注交互体验（消息类型、事件推送、订阅管理）
+2. **独立演进**：客户端协议可以增加便捷操作（如批量拉取、游标订阅）而不影响服务接口
+3. **推送机制**：客户端层有服务端主动推送的事件（`message.created`、`user.online`），这是单向的，不属于 RPC 模式
+4. **Plan 1 只实现服务层**：API Gateway 暴露 HTTP 端点调用服务层 RPC，用于验证后端逻辑。客户端层 Proto 和 WS Gateway 在 Plan 2 实现。
+
 ## 核心场景时序
 
 ### 私聊发消息
