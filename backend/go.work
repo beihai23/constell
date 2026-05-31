@@ -1,4 +1,4 @@
-go 1.25.0
+go 1.25.6
 
 use (
 	./pkg
@@ -6,4 +6,6 @@ use (
 	./services/auth-service
 	./services/community-service
 	./services/user-service
+	./services/ws-gateway
+	./tools/migrate
 )
