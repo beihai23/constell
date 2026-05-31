@@ -1,0 +1,87 @@
+# Constell — 项目状态
+
+> **任何新会话的开场白：** 读取此文件了解项目全貌和当前状态，然后按指引工作。
+
+## 项目简介
+
+Constell（星座）是一个开源社群型 IM 系统，类似 Discord。后端 Go 微服务，前端 Web，SDK（Go/JS/KMP）。
+
+## 核心文档
+
+| 文档 | 用途 | 大小 |
+|------|------|------|
+| `docs/superpowers/specs/2026-05-29-constell-architecture-design.md` | **架构 spec — 所有实施细节的唯一上下文源** | 699 行 |
+| `docs/superpowers/plans/2026-05-30-constell-plans-overview.md` | 5 个阶段计划概要 | 142 行 |
+| `docs/superpowers/plans/2026-05-30-plan1-foundation-core.md` | Plan 1 详细实施计划（22 个 Task） | ~10,700 行 |
+| 本文件 | 项目状态 + 工作规则 | — |
+
+## 阶段进度
+
+| 阶段 | 计划文件 | 状态 | 说明 |
+|------|----------|------|------|
+| Plan 1: 基础设施 + 核心服务 | `plans/2026-05-30-plan1-foundation-core.md` | 📋 已规划 | 22 Tasks，待实现 |
+| Plan 2: WS Gateway | 待编写 | 🔜 下一步 | 需要写详细计划 |
+| Plan 3: File + Search + Notify | 概要在 plans-overview 中 | ⏳ 待规划 | |
+| Plan 4: Web 客户端 | 概要在 plans-overview 中 | ⏳ 待规划 | |
+| Plan 5: SDK | 概要在 plans-overview 中 | ⏳ 待规划 | |
+
+## 推进节奏
+
+**规则：当前阶段实现时，写好下一阶段的详细计划。**
+
+```
+当前阶段实现 ← 同时 → 写下一阶段的详细计划
+```
+
+不要一次写完全部计划，因为：
+- 后续阶段依赖前面阶段的实际产出和经验
+- 提前太多写出的计划大概率需要修改
+
+每个阶段完成后：
+1. 确认所有测试通过
+2. Docker Compose 一键运行验证
+3. 提交并打 tag（v0.1.0, v0.2.0, ...）
+4. 更新此文件的状态
+5. 再写下一阶段的详细计划
+
+## 会话管理规则
+
+### 新会话启动时
+
+1. 先读本文件了解项目状态
+2. 读架构 spec 获取完整技术上下文
+3. 读当前阶段的计划文件，定位到要执行的 Task
+4. **不要整体加载 10,000+ 行的计划文件**——只读当前 Task
+
+### 会话压缩发生时
+
+- 压缩后上下文丢失，但文件系统中的所有状态完好
+- 恢复步骤：读本文件 → 读 spec → 从 plan 文件中找到当前 Task → 继续
+- 已完成的代码修改、git 提交、测试结果都在文件系统中，不依赖对话历史
+
+### 并行会话
+
+- 不同阶段可以在不同会话中并行（如 Plan 1 实现 + Plan 2 规划）
+- 并行会话之间通过**文件系统**协调，不依赖对话上下文
+- 如果需要 worktree 隔离，使用 git worktree
+
+### 上下文预算
+
+| 内容 | 行数 | 加载时机 |
+|------|------|----------|
+| 本文件 | ~100 | 每次会话 |
+| 架构 spec | ~700 | 每次会话 |
+| 单个 Task | ~200-500 | 执行该 Task 时 |
+| 其他文档 | 按需 | 仅在需要时 |
+
+**永远不要一次加载整个 Plan 文件。** 按 Task 编号定位，只读当前需要的部分。
+
+## 技术约束
+
+- Go Workspace monorepo（`backend/go.work`）
+- Connect-RPC（不是 gRPC）用于服务间通信
+- Buf 管理 proto 文件
+- 有状态服务（User Svc, Community Svc）使用 groupcache 模式
+- WS Gateway 是有状态的（conn map + Redis 注册表）
+- DM 属于 User Service，群消息属于 Community Service
+- 详见架构 spec
