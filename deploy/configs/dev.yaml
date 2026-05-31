@@ -1,0 +1,39 @@
+# Constell Development Configuration
+
+database:
+  host: localhost
+  port: 5432
+  name: constell
+  user: constell
+  password: constell_dev
+  sslmode: disable
+  # Full DSN for convenience
+  dsn: "postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable"
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+
+nats:
+  url: nats://localhost:4222
+  monitor_url: http://localhost:8222
+
+minio:
+  endpoint: localhost:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  use_ssl: false
+  bucket: constell
+
+services:
+  api_gateway:
+    addr: :8080
+  ws_gateway:
+    addr: :8081
+  auth_service:
+    addr: :9081
+  user_service:
+    addr: :9082
+  community_service:
+    addr: :9083
