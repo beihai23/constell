@@ -35,3 +35,9 @@ vendor/
 
 # Docker volumes
 deploy/docker/data/
+
+# Build artifacts
+*.test
+backend/services/*/api-gateway
+backend/services/*/*-service
+backend/tools/migrate/migrate
