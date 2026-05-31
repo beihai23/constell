@@ -27,7 +27,7 @@ test/all:
 
 # --- Build ---
 build:
-	cd backend && go build ./...
+	cd backend && go build ./pkg/... ./services/ws-gateway/... ./services/api-gateway/... ./services/auth-service/... ./services/user-service/... ./services/community-service/... ./tests/integration/...
 
 build/ws-gateway:
 	mkdir -p bin
