@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/constell/constell/backend/pkg/proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: backend/pkg/proto
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: backend/pkg/proto
+    opt: paths=source_relative
