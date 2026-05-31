@@ -1,0 +1,9 @@
+go 1.22
+
+use (
+	./pkg
+	./services/api-gateway
+	./services/auth-service
+	./services/community-service
+	./services/user-service
+)

@@ -1,1 +1,37 @@
 .superpowers/
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go workspace vendor directory
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Generated proto (optional — commit if desired)
+# backend/pkg/proto/
+
+# Docker volumes
+deploy/docker/data/
