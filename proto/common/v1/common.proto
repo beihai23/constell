@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package common.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/commonv1";
+
+// UserBrief is a lightweight user summary embedded in other messages.
+message UserBrief {
+  string id = 1;
+  string nickname = 2;
+  string avatar_url = 3;
+}
+
+// PaginationRequest defines how clients request paginated results.
+// Use either offset-based (limit + offset) or cursor-based (limit + cursor),
+// never both.
+message PaginationRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string cursor = 3;
+}
+
+// PaginationResponse is returned alongside any paginated list.
+message PaginationResponse {
+  bool has_more = 1;
+  string next_cursor = 2;
+  int32 total_count = 3;
+}
