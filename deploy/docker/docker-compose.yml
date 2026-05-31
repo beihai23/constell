@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: constell
       POSTGRES_PASSWORD: constell_dev
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7
     container_name: constell-redis
     ports:
-      - "6379:6379"
+      - "16379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -64,6 +64,64 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ============================================
+  # WS Gateway (2 instances for fan-out testing)
+  # ============================================
+
+  ws-gateway-1:
+    build:
+      context: ../../
+      dockerfile: backend/services/ws-gateway/Dockerfile
+    container_name: constell-ws-gateway-1
+    environment:
+      LISTEN_ADDR: ":8081"
+      REDIS_ADDR: "redis:6379"
+      NATS_URL: "nats://nats:4222"
+      USER_SERVICE_ADDR: "http://user-service:9082"
+      COMMUNITY_SERVICE_ADDR: "http://community-service:9083"
+      JWT_SECRET: "dev-secret-change-me"
+      GATEWAY_ID: "ws-gateway-1"
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ws-gateway-2:
+    build:
+      context: ../../
+      dockerfile: backend/services/ws-gateway/Dockerfile
+    container_name: constell-ws-gateway-2
+    environment:
+      LISTEN_ADDR: ":8081"
+      REDIS_ADDR: "redis:6379"
+      NATS_URL: "nats://nats:4222"
+      USER_SERVICE_ADDR: "http://user-service:9082"
+      COMMUNITY_SERVICE_ADDR: "http://community-service:9083"
+      JWT_SECRET: "dev-secret-change-me"
+      GATEWAY_ID: "ws-gateway-2"
+    ports:
+      - "8082:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:
