@@ -13,6 +13,7 @@ Constell（星座）是一个开源社群型 IM 系统，类似 Discord。后端
 | `docs/superpowers/specs/2026-05-29-constell-architecture-design.md` | **架构 spec — 所有实施细节的唯一上下文源** | 699 行 |
 | `docs/superpowers/plans/2026-05-30-constell-plans-overview.md` | 5 个阶段计划概要 | 142 行 |
 | `docs/superpowers/plans/2026-05-30-plan1-foundation-core.md` | Plan 1 详细实施计划（22 个 Task） | ~10,700 行 |
+| `docs/superpowers/plans/2026-05-30-plan2-ws-gateway.md` | Plan 2 详细实施计划（17 个 Task） | ~5,500 行 |
 | 本文件 | 项目状态 + 工作规则 | — |
 
 ## 阶段进度
@@ -20,7 +21,7 @@ Constell（星座）是一个开源社群型 IM 系统，类似 Discord。后端
 | 阶段 | 计划文件 | 状态 | 说明 |
 |------|----------|------|------|
 | Plan 1: 基础设施 + 核心服务 | `plans/2026-05-30-plan1-foundation-core.md` | 📋 已规划 | 22 Tasks，待实现 |
-| Plan 2: WS Gateway | 待编写 | 🔜 下一步 | 需要写详细计划 |
+| Plan 2: WS Gateway | `plans/2026-05-30-plan2-ws-gateway.md` | 📋 已规划 | 17 Tasks，待实现 |
 | Plan 3: File + Search + Notify | 概要在 plans-overview 中 | ⏳ 待规划 | |
 | Plan 4: Web 客户端 | 概要在 plans-overview 中 | ⏳ 待规划 | |
 | Plan 5: SDK | 概要在 plans-overview 中 | ⏳ 待规划 | |
