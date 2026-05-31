@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/userv1";
+
+import "common/v1/common.proto";
+
+// UserService handles user profiles, relationships, and direct messages.
+service UserService {
+  // GetUser returns a user's profile.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  // UpdateProfile modifies the current user's profile.
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  // ListFriends returns the current user's friend list.
+  rpc ListFriends(ListFriendsRequest) returns (ListFriendsResponse);
+  // SendDM sends a direct message to another user.
+  rpc SendDM(SendDMRequest) returns (SendDMResponse);
+  // GetDMHistory retrieves DM history with a specific user.
+  rpc GetDMHistory(GetDMHistoryRequest) returns (GetDMHistoryResponse);
+}
+
+// --- GetUser ---
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  string id = 1;
+  string email = 2;
+  string nickname = 3;
+  string avatar_url = 4;
+  string status_message = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+// --- UpdateProfile ---
+
+message UpdateProfileRequest {
+  string nickname = 1;
+  string avatar_url = 2;
+  string status_message = 3;
+}
+
+message UpdateProfileResponse {
+  GetUserProfile user = 1;
+}
+
+message GetUserProfile {
+  string id = 1;
+  string email = 2;
+  string nickname = 3;
+  string avatar_url = 4;
+  string status_message = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+// --- ListFriends ---
+
+message ListFriendsRequest {
+  common.v1.PaginationRequest pagination = 1;
+}
+
+message ListFriendsResponse {
+  repeated common.v1.UserBrief friends = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// --- SendDM ---
+
+message SendDMRequest {
+  string target_user_id = 1;
+  string content = 2;
+}
+
+message SendDMResponse {
+  DMMessage message = 1;
+}
+
+message DMMessage {
+  string id = 1;
+  string conversation_id = 2;
+  string sender_id = 3;
+  string content = 4;
+  int64 created_at = 5;
+}
+
+// --- GetDMHistory ---
+
+message GetDMHistoryRequest {
+  string target_user_id = 1;
+  common.v1.PaginationRequest pagination = 2;
+}
+
+message GetDMHistoryResponse {
+  repeated DMMessage messages = 1;
+  common.v1.PaginationResponse pagination = 2;
+}

@@ -1,5 +1,8 @@
 module github.com/constell/constell/backend/pkg
 
-go 1.23
+go 1.25.0
 
-require google.golang.org/protobuf v1.36.11
+require (
+	connectrpc.com/connect v1.20.0
+	google.golang.org/protobuf v1.36.11
+)

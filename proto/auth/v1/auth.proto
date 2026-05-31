@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/authv1";
+
+// AuthService handles user authentication.
+service AuthService {
+  // Register creates a new user account.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Login authenticates a user and returns tokens.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // RefreshToken rotates an access/refresh token pair.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string nickname = 3;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 expires_at = 4; // Unix seconds
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string user_id = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 expires_at = 4; // Unix seconds
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at = 3; // Unix seconds
+}

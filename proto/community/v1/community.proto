@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+package community.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/communityv1";
+
+import "common/v1/common.proto";
+
+// CommunityService handles servers, channels, members, and group messages.
+service CommunityService {
+  // --- Server ---
+  rpc CreateServer(CreateServerRequest) returns (CreateServerResponse);
+  rpc GetServer(GetServerRequest) returns (GetServerResponse);
+  rpc UpdateServer(UpdateServerRequest) returns (UpdateServerResponse);
+  rpc DeleteServer(DeleteServerRequest) returns (DeleteServerResponse);
+  rpc ListServers(ListServersRequest) returns (ListServersResponse);
+
+  // --- Channel ---
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  rpc GetChannel(GetChannelRequest) returns (GetChannelResponse);
+  rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+  rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+  // --- Membership ---
+  rpc JoinServer(JoinServerRequest) returns (JoinServerResponse);
+  rpc LeaveServer(LeaveServerRequest) returns (LeaveServerResponse);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+
+  // --- Channel Messages ---
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+}
+
+// =============================================
+// Server
+// =============================================
+
+message Server {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string icon_url = 4;
+  string owner_id = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+message CreateServerRequest {
+  string name = 1;
+  string description = 2;
+  string icon_url = 3;
+}
+
+message CreateServerResponse {
+  Server server = 1;
+}
+
+message GetServerRequest {
+  string server_id = 1;
+}
+
+message GetServerResponse {
+  Server server = 1;
+}
+
+message UpdateServerRequest {
+  string server_id = 1;
+  string name = 2;
+  string description = 3;
+  string icon_url = 4;
+}
+
+message UpdateServerResponse {
+  Server server = 1;
+}
+
+message DeleteServerRequest {
+  string server_id = 1;
+}
+
+message DeleteServerResponse {}
+
+message ListServersRequest {
+  common.v1.PaginationRequest pagination = 1;
+}
+
+message ListServersResponse {
+  repeated Server servers = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// =============================================
+// Channel
+// =============================================
+
+enum ChannelType {
+  CHANNEL_TYPE_UNSPECIFIED = 0;
+  CHANNEL_TYPE_TEXT = 1;
+  CHANNEL_TYPE_ANNOUNCEMENT = 2;
+}
+
+message Channel {
+  string id = 1;
+  string server_id = 2;
+  string name = 3;
+  string topic = 4;
+  ChannelType type = 5;
+  int32 position = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+}
+
+message CreateChannelRequest {
+  string server_id = 1;
+  string name = 2;
+  string topic = 3;
+  ChannelType type = 4;
+  int32 position = 5;
+}
+
+message CreateChannelResponse {
+  Channel channel = 1;
+}
+
+message GetChannelRequest {
+  string channel_id = 1;
+}
+
+message GetChannelResponse {
+  Channel channel = 1;
+}
+
+message UpdateChannelRequest {
+  string channel_id = 1;
+  string name = 2;
+  string topic = 3;
+  ChannelType type = 4;
+  int32 position = 5;
+}
+
+message UpdateChannelResponse {
+  Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+  string channel_id = 1;
+}
+
+message DeleteChannelResponse {}
+
+message ListChannelsRequest {
+  string server_id = 1;
+  common.v1.PaginationRequest pagination = 2;
+}
+
+message ListChannelsResponse {
+  repeated Channel channels = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// =============================================
+// Membership
+// =============================================
+
+message ServerMember {
+  string server_id = 1;
+  string user_id = 2;
+  string nickname = 3;
+  repeated string role_ids = 4;
+  int64 joined_at = 5;
+}
+
+message JoinServerRequest {
+  string server_id = 1;
+}
+
+message JoinServerResponse {
+  ServerMember member = 1;
+}
+
+message LeaveServerRequest {
+  string server_id = 1;
+}
+
+message LeaveServerResponse {}
+
+message ListMembersRequest {
+  string server_id = 1;
+  common.v1.PaginationRequest pagination = 2;
+}
+
+message ListMembersResponse {
+  repeated ServerMember members = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// =============================================
+// Channel Messages
+// =============================================
+
+message ChannelMessage {
+  string id = 1;
+  string channel_id = 2;
+  string author_id = 3;
+  string content = 4;
+  int64 created_at = 5;
+  int64 updated_at = 6;
+}
+
+message SendMessageRequest {
+  string channel_id = 1;
+  string content = 2;
+}
+
+message SendMessageResponse {
+  ChannelMessage message = 1;
+}
+
+message GetMessagesRequest {
+  string channel_id = 1;
+  common.v1.PaginationRequest pagination = 2;
+}
+
+message GetMessagesResponse {
+  repeated ChannelMessage messages = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
