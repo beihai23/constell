@@ -7,5 +7,6 @@ use (
 	./services/community-service
 	./services/user-service
 	./services/ws-gateway
+	./tests/integration
 	./tools/migrate
 )
