@@ -1,0 +1,130 @@
+// Copyright 2026 Constell Authors
+
+syntax = "proto3";
+
+package gateway.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/gatewayv1";
+
+// =============================================
+// Message types sent by the client
+// =============================================
+
+// ClientMessageType enumerates all message types a client can send.
+enum ClientMessageType {
+  CLIENT_MESSAGE_TYPE_UNSPECIFIED = 0;
+  CLIENT_MESSAGE_TYPE_SEND_DM = 1;
+  CLIENT_MESSAGE_TYPE_SEND_CHANNEL_MESSAGE = 2;
+  CLIENT_MESSAGE_TYPE_SUBSCRIBE_CHANNEL = 3;
+  CLIENT_MESSAGE_TYPE_UNSUBSCRIBE_CHANNEL = 4;
+  CLIENT_MESSAGE_TYPE_HEARTBEAT = 5;
+}
+
+// ServerEventType enumerates all event types the server can push.
+enum ServerEventType {
+  SERVER_EVENT_TYPE_UNSPECIFIED = 0;
+  SERVER_EVENT_TYPE_DM_RECEIVED = 1;
+  SERVER_EVENT_TYPE_CHANNEL_MESSAGE_RECEIVED = 2;
+  SERVER_EVENT_TYPE_USER_ONLINE = 3;
+  SERVER_EVENT_TYPE_USER_OFFLINE = 4;
+  SERVER_EVENT_TYPE_ERROR = 5;
+  SERVER_EVENT_TYPE_HEARTBEAT_ACK = 6;
+  SERVER_EVENT_TYPE_ACK = 7;
+}
+
+// =============================================
+// Client -> Server messages
+// =============================================
+
+// ClientMessage is the top-level wrapper for all client->server messages.
+message ClientMessage {
+  ClientMessageType type = 1;
+  string request_id = 2;
+
+  // Exactly one of the following is set, depending on type.
+  SendDMRequest send_dm_request = 10;
+  SendChannelMessageRequest send_channel_message_request = 11;
+  SubscribeChannelRequest subscribe_channel_request = 12;
+  UnsubscribeChannelRequest unsubscribe_channel_request = 13;
+}
+
+// SendDMRequest asks the gateway to send a direct message to another user.
+message SendDMRequest {
+  string receiver_id = 1;
+  string content = 2;
+}
+
+// SendChannelMessageRequest asks the gateway to send a message to a channel.
+message SendChannelMessageRequest {
+  string channel_id = 1;
+  string content = 2;
+}
+
+// SubscribeChannelRequest asks the gateway to subscribe the user to a channel's events.
+message SubscribeChannelRequest {
+  string channel_id = 1;
+}
+
+// UnsubscribeChannelRequest asks the gateway to unsubscribe the user from a channel's events.
+message UnsubscribeChannelRequest {
+  string channel_id = 1;
+}
+
+// =============================================
+// Server -> Client events
+// =============================================
+
+// ServerEvent is the top-level wrapper for all server->client events.
+message ServerEvent {
+  ServerEventType type = 1;
+
+  // For ACK responses, echoes the client's request_id.
+  string request_id = 2;
+
+  // Exactly one of the following is set, depending on type.
+  DMReceivedEvent dm_received_event = 10;
+  ChannelMessageReceivedEvent channel_message_event = 11;
+  UserOnlineEvent user_online_event = 12;
+  UserOfflineEvent user_offline_event = 13;
+  ErrorEvent error_event = 14;
+}
+
+// AckEvent is sent to confirm a client request was processed.
+message AckEvent {
+  string request_id = 1;
+}
+
+// DMReceivedEvent is pushed when the user receives a direct message.
+message DMReceivedEvent {
+  string message_id = 1;
+  string sender_id = 2;
+  string sender_nickname = 3;
+  string content = 4;
+  int64 created_at = 5;
+}
+
+// ChannelMessageReceivedEvent is pushed when a new message appears in a subscribed channel.
+message ChannelMessageReceivedEvent {
+  string message_id = 1;
+  string channel_id = 2;
+  string sender_id = 3;
+  string sender_nickname = 4;
+  string content = 5;
+  int64 created_at = 6;
+}
+
+// UserOnlineEvent is pushed when a user comes online.
+message UserOnlineEvent {
+  string user_id = 1;
+}
+
+// UserOfflineEvent is pushed when a user goes offline.
+message UserOfflineEvent {
+  string user_id = 1;
+}
+
+// ErrorEvent is pushed when something goes wrong.
+message ErrorEvent {
+  string code = 1;
+  string message = 2;
+}
