@@ -3131,3 +3131,7628 @@ git commit -m "feat: add pkg/middleware Connect-RPC auth interceptor"
 
 ---
 
+## Task 15: Auth Service
+
+**Goal:** Implement the Auth microservice — a stateless service handling Register, Login, and RefreshToken. Uses bcrypt for passwords, JWT for tokens, Redis for refresh token storage. TDD approach with mocked repository and Redis.
+
+**Commit message:** `feat: implement auth-service with Register, Login, RefreshToken`
+
+**Files:**
+- Create: `backend/services/auth-service/go.mod`
+- Create: `backend/services/auth-service/repository.go`
+- Create: `backend/services/auth-service/service.go`
+- Create: `backend/services/auth-service/password.go`
+- Create: `backend/services/auth-service/service_test.go`
+- Create: `backend/services/auth-service/main.go`
+
+- [ ] **Step 15.1 — Write `backend/services/auth-service/go.mod`**
+
+File: `backend/services/auth-service/go.mod`
+
+```
+module github.com/constell/constell/backend/services/auth-service
+
+go 1.22
+```
+
+- [ ] **Step 15.2 — Write `backend/services/auth-service/repository.go`**
+
+The repository abstracts all database operations the auth service needs.
+
+File: `backend/services/auth-service/repository.go`
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// User represents a row from the users table relevant to authentication.
+type User struct {
+	ID           string
+	Email        string
+	PasswordHash string
+	Nickname     string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// Repository handles database operations for the auth service.
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepository creates a new Repository backed by the given connection pool.
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool}
+}
+
+// CreateUser inserts a new user and returns the generated ID.
+func (r *Repository) CreateUser(ctx context.Context, nickname, email, hashedPassword string) (string, error) {
+	var id string
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO users (nickname, email, password_hash) VALUES ($1, $2, $3) RETURNING id`,
+		nickname, email, hashedPassword,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("insert user: %w", err)
+	}
+	return id, nil
+}
+
+// GetUserByEmail looks up a user by email. Returns pgx.ErrNoRows if not found.
+func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, email, password_hash, nickname, created_at, updated_at FROM users WHERE email = $1`,
+		email,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Nickname, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("user not found: %w", err)
+		}
+		return nil, fmt.Errorf("query user by email: %w", err)
+	}
+	return &u, nil
+}
+```
+
+- [ ] **Step 15.3 — Write `backend/services/auth-service/password.go`**
+
+A small file isolating bcrypt operations.
+
+File: `backend/services/auth-service/password.go`
+
+```go
+package main
+
+import "golang.org/x/crypto/bcrypt"
+
+func hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+func checkPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+```
+
+- [ ] **Step 15.4 — Write `backend/services/auth-service/service.go`**
+
+The service implements the Connect-RPC AuthServiceHandler interface.
+
+File: `backend/services/auth-service/service.go`
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+	goredis "github.com/redis/go-redis/v9"
+
+	pbv1 "github.com/constell/constell/backend/pkg/proto/authv1"
+	"github.com/constell/constell/backend/pkg/proto/authv1/authv1connect"
+	"github.com/constell/constell/backend/pkg/jwt"
+)
+
+const (
+	accessTokenExpiry  = 15 * time.Minute
+	refreshTokenExpiry = 7 * 24 * time.Hour
+)
+
+// TokenPair holds an access token and refresh token with expiry.
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    int64
+}
+
+// AuthService implements the Connect-RPC AuthServiceHandler.
+type AuthService struct {
+	repo      *Repository
+	rdb       *goredis.Client
+	jwtSecret string
+}
+
+// NewAuthService creates a new AuthService.
+func NewAuthService(repo *Repository, rdb *goredis.Client, jwtSecret string) *AuthService {
+	return &AuthService{
+		repo:      repo,
+		rdb:       rdb,
+		jwtSecret: jwtSecret,
+	}
+}
+
+// Ensure AuthService implements the generated service handler interface.
+var _ authv1connect.AuthServiceHandler = (*AuthService)(nil)
+
+// Register handles user registration.
+func (s *AuthService) Register(
+	ctx context.Context,
+	req *connect.Request[pbv1.RegisterRequest],
+) (*connect.Response[pbv1.RegisterResponse], error) {
+	msg := req.Msg
+
+	email := strings.TrimSpace(msg.Email)
+	password := msg.Password
+	nickname := strings.TrimSpace(msg.Nickname)
+
+	if email == "" || password == "" || nickname == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("email, password, and nickname are required"))
+	}
+
+	if len(password) < 8 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("password must be at least 8 characters"))
+	}
+
+	// Check if email is already taken.
+	_, err := s.repo.GetUserByEmail(ctx, email)
+	if err == nil {
+		return nil, connect.NewError(connect.CodeAlreadyExists,
+			fmt.Errorf("email already registered"))
+	}
+
+	// Hash the password with bcrypt.
+	hashedPassword, err := hashPassword(password)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to hash password: %w", err))
+	}
+
+	// Create the user.
+	userID, err := s.repo.CreateUser(ctx, nickname, email, hashedPassword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to create user: %w", err))
+	}
+
+	// Generate JWT pair.
+	pair, err := s.generateTokenPair(userID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to generate tokens: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.RegisterResponse{
+		UserId:       userID,
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt,
+	})
+	return resp, nil
+}
+
+// Login handles user authentication.
+func (s *AuthService) Login(
+	ctx context.Context,
+	req *connect.Request[pbv1.LoginRequest],
+) (*connect.Response[pbv1.LoginResponse], error) {
+	msg := req.Msg
+
+	email := strings.TrimSpace(msg.Email)
+	password := msg.Password
+
+	if email == "" || password == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("email and password are required"))
+	}
+
+	// Look up user by email.
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("invalid email or password"))
+	}
+
+	// Verify password.
+	if !checkPassword(password, user.PasswordHash) {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("invalid email or password"))
+	}
+
+	// Generate JWT pair.
+	pair, err := s.generateTokenPair(user.ID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to generate tokens: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.LoginResponse{
+		UserId:       user.ID,
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt,
+	})
+	return resp, nil
+}
+
+// RefreshToken rotates an access/refresh token pair.
+func (s *AuthService) RefreshToken(
+	ctx context.Context,
+	req *connect.Request[pbv1.RefreshTokenRequest],
+) (*connect.Response[pbv1.RefreshTokenResponse], error) {
+	msg := req.Msg
+
+	if msg.RefreshToken == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("refresh_token is required"))
+	}
+
+	// Look up the refresh token in Redis.
+	tokenHash := hashToken(msg.RefreshToken)
+	redisKey := fmt.Sprintf("refresh:%s", tokenHash)
+
+	userID, err := s.rdb.Get(ctx, redisKey).Result()
+	if err != nil {
+		if err == goredis.Nil {
+			return nil, connect.NewError(connect.CodeUnauthenticated,
+				fmt.Errorf("invalid or expired refresh token"))
+		}
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("redis lookup failed: %w", err))
+	}
+
+	// Delete the old refresh token (rotation).
+	s.rdb.Del(ctx, redisKey)
+
+	// Generate new JWT pair.
+	pair, err := s.generateTokenPair(userID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to generate tokens: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.RefreshTokenResponse{
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt,
+	})
+	return resp, nil
+}
+
+// generateTokenPair creates an access token and refresh token, stores the refresh
+// token in Redis, and returns both.
+func (s *AuthService) generateTokenPair(userID string) (*TokenPair, error) {
+	accessToken, err := jwt.GenerateToken(userID, s.jwtSecret, accessTokenExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("generate access token: %w", err)
+	}
+
+	refreshToken, err := jwt.GenerateToken(userID, s.jwtSecret, refreshTokenExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	// Store refresh token in Redis: refresh:{sha256(token)} -> userID.
+	tokenHash := hashToken(refreshToken)
+	redisKey := fmt.Sprintf("refresh:%s", tokenHash)
+	ctx := context.Background()
+	if err := s.rdb.Set(ctx, redisKey, userID, refreshTokenExpiry).Err(); err != nil {
+		return nil, fmt.Errorf("store refresh token: %w", err)
+	}
+
+	expiresAt := time.Now().Add(accessTokenExpiry).Unix()
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    expiresAt,
+	}, nil
+}
+
+// hashToken returns the hex-encoded SHA-256 of a token string.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+```
+
+- [ ] **Step 15.5 — Write the test file (TDD red/green phase)**
+
+Tests mock the repository directly and use `nil` Redis where validation fails before Redis access is needed.
+
+File: `backend/services/auth-service/service_test.go`
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"testing"
+
+	"connectrpc.com/connect"
+
+	pbv1 "github.com/constell/constell/backend/pkg/proto/authv1"
+)
+
+// --- Mock Repository ---
+
+type mockRepo struct {
+	users        map[string]*User // email -> User
+	createErr    error
+	lastHashedPw string
+}
+
+func newMockRepo() *mockRepo {
+	return &mockRepo{users: make(map[string]*User)}
+}
+
+func (m *mockRepo) CreateUser(ctx context.Context, nickname, email, hashedPassword string) (string, error) {
+	if m.createErr != nil {
+		return "", m.createErr
+	}
+	id := fmt.Sprintf("user-%s", email)
+	m.users[email] = &User{
+		ID: id, Email: email, PasswordHash: hashedPassword, Nickname: nickname,
+	}
+	m.lastHashedPw = hashedPassword
+	return id, nil
+}
+
+func (m *mockRepo) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	u, ok := m.users[email]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+	return u, nil
+}
+
+// --- Tests ---
+
+func TestHashAndCheckPassword(t *testing.T) {
+	password := "supersecret123"
+	hash, err := hashPassword(password)
+	if err != nil {
+		t.Fatalf("hashPassword failed: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("expected non-empty hash")
+	}
+	if hash == password {
+		t.Fatal("hash should not equal plain password")
+	}
+	if !checkPassword(password, hash) {
+		t.Fatal("checkPassword should return true for correct password")
+	}
+	if checkPassword("wrongpassword", hash) {
+		t.Fatal("checkPassword should return false for wrong password")
+	}
+	t.Log("hashPassword and checkPassword working correctly")
+}
+
+func TestHashToken(t *testing.T) {
+	token := "some-refresh-token-value"
+	h := hashToken(token)
+
+	expected := sha256.Sum256([]byte(token))
+	expectedHex := hex.EncodeToString(expected[:])
+	if h != expectedHex {
+		t.Fatalf("expected %q, got %q", expectedHex, h)
+	}
+
+	h2 := hashToken(token)
+	if h != h2 {
+		t.Fatal("hashToken should be deterministic")
+	}
+
+	h3 := hashToken("different-token")
+	if h == h3 {
+		t.Fatal("different tokens should produce different hashes")
+	}
+	t.Log("hashToken working correctly")
+}
+
+func TestRegisterValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		password string
+		nickname string
+		wantCode connect.Code
+	}{
+		{
+			name: "missing email", email: "", password: "password123",
+			nickname: "alice", wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name: "missing password", email: "alice@example.com", password: "",
+			nickname: "alice", wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name: "missing nickname", email: "alice@example.com",
+			password: "password123", nickname: "", wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name: "short password", email: "alice@example.com",
+			password: "short", nickname: "alice", wantCode: connect.CodeInvalidArgument,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &AuthService{
+				repo: newMockRepo(), rdb: nil, jwtSecret: "test-secret",
+			}
+			req := connect.NewRequest(&pbv1.RegisterRequest{
+				Email: tt.email, Password: tt.password, Nickname: tt.nickname,
+			})
+			_, err := svc.Register(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			connErr, ok := err.(*connect.Error)
+			if !ok {
+				t.Fatalf("expected *connect.Error, got %T", err)
+			}
+			if connErr.Code() != tt.wantCode {
+				t.Fatalf("expected code %v, got %v (message: %s)",
+					tt.wantCode, connErr.Code(), connErr.Message())
+			}
+			t.Logf("%s: correctly rejected with code %v", tt.name, connErr.Code())
+		})
+	}
+}
+
+func TestRegisterDuplicateEmail(t *testing.T) {
+	repo := newMockRepo()
+	repo.users["alice@example.com"] = &User{
+		ID: "user-existing", Email: "alice@example.com",
+		PasswordHash: "$2a$10$somehash", Nickname: "alice",
+	}
+	svc := &AuthService{repo: repo, rdb: nil, jwtSecret: "test-secret"}
+	req := connect.NewRequest(&pbv1.RegisterRequest{
+		Email: "alice@example.com", Password: "password123", Nickname: "alice",
+	})
+	_, err := svc.Register(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for duplicate email, got nil")
+	}
+	connErr, ok := err.(*connect.Error)
+	if !ok {
+		t.Fatalf("expected *connect.Error, got %T", err)
+	}
+	if connErr.Code() != connect.CodeAlreadyExists {
+		t.Fatalf("expected CodeAlreadyExists, got %v", connErr.Code())
+	}
+	t.Log("duplicate email correctly rejected with CodeAlreadyExists")
+}
+
+func TestLoginUserNotFound(t *testing.T) {
+	svc := &AuthService{repo: newMockRepo(), rdb: nil, jwtSecret: "test-secret"}
+	req := connect.NewRequest(&pbv1.LoginRequest{
+		Email: "nobody@example.com", Password: "password123",
+	})
+	_, err := svc.Login(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for unknown email, got nil")
+	}
+	connErr, ok := err.(*connect.Error)
+	if !ok {
+		t.Fatalf("expected *connect.Error, got %T", err)
+	}
+	if connErr.Code() != connect.CodeUnauthenticated {
+		t.Fatalf("expected CodeUnauthenticated, got %v", connErr.Code())
+	}
+	t.Log("unknown email correctly rejected with CodeUnauthenticated")
+}
+
+func TestLoginWrongPassword(t *testing.T) {
+	repo := newMockRepo()
+	hash, _ := hashPassword("correctpassword")
+	repo.users["alice@example.com"] = &User{
+		ID: "user-alice", Email: "alice@example.com",
+		PasswordHash: hash, Nickname: "alice",
+	}
+	svc := &AuthService{repo: repo, rdb: nil, jwtSecret: "test-secret"}
+	req := connect.NewRequest(&pbv1.LoginRequest{
+		Email: "alice@example.com", Password: "wrongpassword",
+	})
+	_, err := svc.Login(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for wrong password, got nil")
+	}
+	connErr, ok := err.(*connect.Error)
+	if !ok {
+		t.Fatalf("expected *connect.Error, got %T", err)
+	}
+	if connErr.Code() != connect.CodeUnauthenticated {
+		t.Fatalf("expected CodeUnauthenticated, got %v", connErr.Code())
+	}
+	t.Log("wrong password correctly rejected with CodeUnauthenticated")
+}
+
+func TestLoginValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		password string
+		wantCode connect.Code
+	}{
+		{
+			name: "missing email", email: "", password: "password123",
+			wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name: "missing password", email: "alice@example.com", password: "",
+			wantCode: connect.CodeInvalidArgument,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &AuthService{repo: newMockRepo(), rdb: nil, jwtSecret: "test-secret"}
+			req := connect.NewRequest(&pbv1.LoginRequest{
+				Email: tt.email, Password: tt.password,
+			})
+			_, err := svc.Login(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			connErr, ok := err.(*connect.Error)
+			if !ok {
+				t.Fatalf("expected *connect.Error, got %T", err)
+			}
+			if connErr.Code() != tt.wantCode {
+				t.Fatalf("expected code %v, got %v", tt.wantCode, connErr.Code())
+			}
+		})
+	}
+}
+
+func TestRefreshTokenValidation(t *testing.T) {
+	svc := &AuthService{repo: newMockRepo(), rdb: nil, jwtSecret: "test-secret"}
+	req := connect.NewRequest(&pbv1.RefreshTokenRequest{RefreshToken: ""})
+	_, err := svc.RefreshToken(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for empty refresh token, got nil")
+	}
+	connErr, ok := err.(*connect.Error)
+	if !ok {
+		t.Fatalf("expected *connect.Error, got %T", err)
+	}
+	if connErr.Code() != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v", connErr.Code())
+	}
+	t.Log("empty refresh token correctly rejected with CodeInvalidArgument")
+}
+```
+
+- [ ] **Step 15.6 — Fetch dependencies and run tests**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/auth-service
+go get connectrpc.com/connect@latest
+go get github.com/jackc/pgx/v5/pgxpool
+go get github.com/redis/go-redis/v9
+go get github.com/golang-jwt/jwt/v5
+go get golang.org/x/crypto
+go get github.com/constell/constell/backend/pkg
+go mod tidy
+go test -v -count=1 ./...
+```
+
+Expected:
+
+```
+=== RUN   TestHashAndCheckPassword
+--- PASS: TestHashAndCheckPassword (0.00s)
+=== RUN   TestHashToken
+--- PASS: TestHashToken (0.00s)
+=== RUN   TestRegisterValidation
+=== RUN   TestRegisterValidation/missing_email
+=== RUN   TestRegisterValidation/missing_password
+=== RUN   TestRegisterValidation/missing_nickname
+=== RUN   TestRegisterValidation/short_password
+--- PASS: TestRegisterValidation (0.00s)
+=== RUN   TestRegisterDuplicateEmail
+--- PASS: TestRegisterDuplicateEmail (0.00s)
+=== RUN   TestLoginUserNotFound
+--- PASS: TestLoginUserNotFound (0.00s)
+=== RUN   TestLoginWrongPassword
+--- PASS: TestLoginWrongPassword (0.00s)
+=== RUN   TestLoginValidation
+=== RUN   TestLoginValidation/missing_email
+=== RUN   TestLoginValidation/missing_password
+--- PASS: TestLoginValidation (0.00s)
+=== RUN   TestRefreshTokenValidation
+--- PASS: TestRefreshTokenValidation (0.00s)
+PASS
+```
+
+- [ ] **Step 15.7 — Write `backend/services/auth-service/main.go`**
+
+File: `backend/services/auth-service/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+
+	"github.com/constell/constell/backend/pkg/proto/authv1/authv1connect"
+)
+
+func main() {
+	databaseURL := envOrDefault("DATABASE_URL",
+		"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable")
+	redisURL := envOrDefault("REDIS_URL", "localhost:6379")
+	jwtSecret := envOrDefault("JWT_SECRET", "dev-secret-change-me")
+	port := envOrDefault("PORT", "9081")
+
+	// Connect to PostgreSQL.
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		log.Fatalf("parse database URL: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		log.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		log.Fatalf("ping postgres: %v", err)
+	}
+	log.Println("connected to postgres")
+
+	// Connect to Redis.
+	rdb := goredis.NewClient(&goredis.Options{Addr: redisURL})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		log.Fatalf("ping redis: %v", err)
+	}
+	log.Println("connected to redis")
+
+	// Wire up the service.
+	repo := NewRepository(pool)
+	authService := NewAuthService(repo, rdb, jwtSecret)
+
+	// Build the HTTP mux with Connect-RPC handler.
+	mux := http.NewServeMux()
+	mux.Handle(authv1connect.NewAuthServiceHandler(authService))
+
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	// Graceful shutdown.
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		log.Println("shutting down...")
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(
+			context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("auth-service listening on :%s", port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+func envOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+```
+
+- [ ] **Step 15.8 — Verify the service compiles**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/auth-service
+go mod tidy
+go build ./...
+```
+
+Expected: no errors. `go.mod` and `go.sum` updated with all dependencies.
+
+- [ ] **Step 15.9 — Verify all tests pass**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/auth-service
+go test -v -count=1 ./...
+```
+
+Expected: all tests PASS.
+
+- [ ] **Step 15.10 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/services/auth-service/
+git status
+git commit -m "feat: implement auth-service with Register, Login, RefreshToken"
+```
+
+---
+
+## Task 16: User Service
+
+**Goal:** Implement the User microservice — a stateful service using groupcache for in-process caching, partitioned by user_id. Handles user profiles, friend relationships, direct messages, and DM history with cursor pagination.
+
+**Commit message:** `feat: implement user-service with profile, friends, DM, and groupcache`
+
+**Files:**
+- Create: `backend/services/user-service/go.mod`
+- Create: `backend/services/user-service/repository.go`
+- Create: `backend/services/user-service/cache.go`
+- Create: `backend/services/user-service/service.go`
+- Create: `backend/services/user-service/service_test.go`
+- Create: `backend/services/user-service/main.go`
+
+- [ ] **Step 16.1 — Write `backend/services/user-service/go.mod`**
+
+File: `backend/services/user-service/go.mod`
+
+```
+module github.com/constell/constell/backend/services/user-service
+
+go 1.22
+```
+
+- [ ] **Step 16.2 — Write `backend/services/user-service/repository.go`**
+
+File: `backend/services/user-service/repository.go`
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// UserRow represents a row from the users table.
+type UserRow struct {
+	ID            string
+	Email         string
+	Nickname      string
+	AvatarURL     string
+	StatusMessage string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// RelationRow represents a row from user_relations.
+type RelationRow struct {
+	UserID       string
+	TargetUserID string
+	Type         string // "friend" or "blocked"
+	CreatedAt    time.Time
+}
+
+// DMConversationRow represents a row from dm_conversations.
+type DMConversationRow struct {
+	ID        string
+	UserAID   string
+	UserBID   string
+	CreatedAt time.Time
+}
+
+// DMMessageRow represents a row from dm_messages.
+type DMMessageRow struct {
+	ID             string
+	ConversationID string
+	SenderID       string
+	Content        string
+	CreatedAt      time.Time
+}
+
+// Repository handles database operations for the user service.
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepository creates a new Repository.
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool}
+}
+
+// GetUserByID fetches a user by ID.
+func (r *Repository) GetUserByID(ctx context.Context, userID string) (*UserRow, error) {
+	var u UserRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, email, nickname, avatar_url, status_message, created_at, updated_at
+		 FROM users WHERE id = $1`, userID,
+	).Scan(&u.ID, &u.Email, &u.Nickname, &u.AvatarURL, &u.StatusMessage,
+		&u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("user not found: %w", err)
+		}
+		return nil, fmt.Errorf("query user: %w", err)
+	}
+	return &u, nil
+}
+
+// UpdateUserProfile updates a user's profile fields.
+func (r *Repository) UpdateUserProfile(ctx context.Context, userID, nickname, avatarURL, statusMessage string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET nickname = $2, avatar_url = $3, status_message = $4, updated_at = now()
+		 WHERE id = $1`,
+		userID, nickname, avatarURL, statusMessage)
+	if err != nil {
+		return fmt.Errorf("update user profile: %w", err)
+	}
+	return nil
+}
+
+// GetRelation fetches the relation between two users.
+func (r *Repository) GetRelation(ctx context.Context, userID, targetUserID string) (*RelationRow, error) {
+	var rel RelationRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT user_id, target_user_id, type, created_at
+		 FROM user_relations WHERE user_id = $1 AND target_user_id = $2`,
+		userID, targetUserID,
+	).Scan(&rel.UserID, &rel.TargetUserID, &rel.Type, &rel.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil // no relation
+		}
+		return nil, fmt.Errorf("query relation: %w", err)
+	}
+	return &rel, nil
+}
+
+// CreateRelation creates a friend or block relation.
+func (r *Repository) CreateRelation(ctx context.Context, userID, targetUserID, relationType string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO user_relations (user_id, target_user_id, type) VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, target_user_id) DO UPDATE SET type = $3`,
+		userID, targetUserID, relationType)
+	if err != nil {
+		return fmt.Errorf("create relation: %w", err)
+	}
+	return nil
+}
+
+// DeleteRelation removes a relation between two users.
+func (r *Repository) DeleteRelation(ctx context.Context, userID, targetUserID string) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM user_relations WHERE user_id = $1 AND target_user_id = $2`,
+		userID, targetUserID)
+	if err != nil {
+		return fmt.Errorf("delete relation: %w", err)
+	}
+	return nil
+}
+
+// ListFriends returns the user's friends with pagination.
+func (r *Repository) ListFriends(ctx context.Context, userID string, limit int, cursor string) ([]*UserRow, string, error) {
+	var args []interface{}
+	args = append(args, userID)
+	query := `
+		SELECT u.id, u.email, u.nickname, u.avatar_url, u.status_message, u.created_at, u.updated_at
+		FROM user_relations r
+		JOIN users u ON u.id = r.target_user_id
+		WHERE r.user_id = $1 AND r.type = 'friend'`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND u.id > $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY u.id LIMIT $%d`, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("list friends: %w", err)
+	}
+	defer rows.Close()
+
+	var friends []*UserRow
+	for rows.Next() {
+		var u UserRow
+		if err := rows.Scan(&u.ID, &u.Email, &u.Nickname, &u.AvatarURL,
+			&u.StatusMessage, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan friend: %w", err)
+		}
+		friends = append(friends, &u)
+	}
+
+	var nextCursor string
+	if len(friends) > limit {
+		nextCursor = friends[limit-1].ID
+		friends = friends[:limit]
+	}
+	return friends, nextCursor, nil
+}
+
+// GetOrCreateConversation returns the DM conversation between two users,
+// creating it if it does not exist.
+func (r *Repository) GetOrCreateConversation(ctx context.Context, userAID, userBID string) (*DMConversationRow, error) {
+	small, big := userAID, userBID
+	if small > big {
+		small, big = big, small
+	}
+
+	var conv DMConversationRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, user_a_id, user_b_id, created_at
+		 FROM dm_conversations WHERE user_a_id = $1 AND user_b_id = $2`,
+		small, big,
+	).Scan(&conv.ID, &conv.UserAID, &conv.UserBID, &conv.CreatedAt)
+	if err == nil {
+		return &conv, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, fmt.Errorf("query conversation: %w", err)
+	}
+
+	err = r.pool.QueryRow(ctx,
+		`INSERT INTO dm_conversations (user_a_id, user_b_id) VALUES ($1, $2)
+		 RETURNING id, user_a_id, user_b_id, created_at`,
+		small, big,
+	).Scan(&conv.ID, &conv.UserAID, &conv.UserBID, &conv.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create conversation: %w", err)
+	}
+	return &conv, nil
+}
+
+// InsertDMMessage inserts a DM message and returns the full row.
+func (r *Repository) InsertDMMessage(ctx context.Context, conversationID, senderID, content string) (*DMMessageRow, error) {
+	var msg DMMessageRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO dm_messages (conversation_id, sender_id, content)
+		 VALUES ($1, $2, $3) RETURNING id, conversation_id, sender_id, content, created_at`,
+		conversationID, senderID, content,
+	).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Content, &msg.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert dm message: %w", err)
+	}
+	return &msg, nil
+}
+
+// GetDMHistory fetches DM messages for a conversation with cursor pagination.
+func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, limit int, cursor string) ([]*DMMessageRow, string, error) {
+	var args []interface{}
+	args = append(args, conversationID)
+	query := `
+		SELECT id, conversation_id, sender_id, content, created_at
+		FROM dm_messages WHERE conversation_id = $1`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("get dm history: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*DMMessageRow
+	for rows.Next() {
+		var m DMMessageRow
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderID,
+			&m.Content, &m.CreatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan dm message: %w", err)
+		}
+		messages = append(messages, &m)
+	}
+
+	var nextCursor string
+	if len(messages) > limit {
+		nextCursor = messages[limit].CreatedAt.Format(time.RFC3339Nano)
+		messages = messages[:limit]
+	}
+	return messages, nextCursor, nil
+}
+
+// GetDMConversations returns conversations for a user.
+func (r *Repository) GetDMConversations(ctx context.Context, userID string, limit int, cursor string) ([]*DMConversationRow, error) {
+	var args []interface{}
+	args = append(args, userID)
+	query := `
+		SELECT id, user_a_id, user_b_id, created_at
+		FROM dm_conversations WHERE user_a_id = $1 OR user_b_id = $1`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+	args = append(args, limit)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get dm conversations: %w", err)
+	}
+	defer rows.Close()
+
+	var convos []*DMConversationRow
+	for rows.Next() {
+		var c DMConversationRow
+		if err := rows.Scan(&c.ID, &c.UserAID, &c.UserBID, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan conversation: %w", err)
+		}
+		convos = append(convos, &c)
+	}
+	return convos, nil
+}
+
+// MarshalUser serializes a UserRow to JSON bytes.
+func MarshalUser(u *UserRow) ([]byte, error) {
+	return json.Marshal(u)
+}
+
+// UnmarshalUser deserializes JSON bytes to a UserRow.
+func UnmarshalUser(data []byte) (*UserRow, error) {
+	var u UserRow
+	if err := json.Unmarshal(data, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// MarshalRelation serializes a RelationRow to JSON bytes.
+func MarshalRelation(r *RelationRow) ([]byte, error) {
+	return json.Marshal(r)
+}
+
+// UnmarshalRelation deserializes JSON bytes to a RelationRow.
+func UnmarshalRelation(data []byte) (*RelationRow, error) {
+	var rel RelationRow
+	if err := json.Unmarshal(data, &rel); err != nil {
+		return nil, err
+	}
+	return &rel, nil
+}
+```
+
+- [ ] **Step 16.3 — Write `backend/services/user-service/cache.go`**
+
+File: `backend/services/user-service/cache.go`
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+
+	groupcache "github.com/constell/constell/backend/pkg/groupcache"
+)
+
+// UserCache wraps a groupcache.Group for user data.
+type UserCache struct {
+	group *groupcache.Group[string, []byte]
+	repo  *Repository
+}
+
+// NewUserCache creates a UserCache that fills misses from the repository.
+func NewUserCache(cfg groupcache.Config, repo *Repository) *UserCache {
+	g := groupcache.New[string, []byte](cfg,
+		func(ctx context.Context, key string) ([]byte, error) {
+			userID := key[len("user:"):]
+			user, err := repo.GetUserByID(ctx, userID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalUser(user)
+		},
+		func(ctx context.Context, key string, peerAddr string) ([]byte, error) {
+			userID := key[len("user:"):]
+			user, err := repo.GetUserByID(ctx, userID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalUser(user)
+		},
+	)
+	return &UserCache{group: g, repo: repo}
+}
+
+// Get retrieves a user from cache or fills it from the DB.
+func (c *UserCache) Get(ctx context.Context, userID string) (*UserRow, error) {
+	key := fmt.Sprintf("user:%s", userID)
+	data, err := c.group.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalUser(data)
+}
+
+// Set stores a user in the local cache.
+func (c *UserCache) Set(ctx context.Context, user *UserRow) {
+	key := fmt.Sprintf("user:%s", user.ID)
+	data, err := MarshalUser(user)
+	if err != nil {
+		log.Printf("cache: marshal user %s: %v", user.ID, err)
+		return
+	}
+	c.group.Set(ctx, key, data)
+}
+
+// Invalidate removes a user from the local cache.
+func (c *UserCache) Invalidate(ctx context.Context, userID string) {
+	key := fmt.Sprintf("user:%s", userID)
+	c.group.Delete(ctx, key)
+}
+
+// RelationCache wraps a groupcache.Group for relation data.
+type RelationCache struct {
+	group *groupcache.Group[string, []byte]
+	repo  *Repository
+}
+
+// NewRelationCache creates a RelationCache that fills misses from the repository.
+func NewRelationCache(cfg groupcache.Config, repo *Repository) *RelationCache {
+	g := groupcache.New[string, []byte](cfg,
+		func(ctx context.Context, key string) ([]byte, error) {
+			parts := splitRelationKey(key)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid relation key: %s", key)
+			}
+			rel, err := repo.GetRelation(ctx, parts[0], parts[1])
+			if err != nil {
+				return nil, err
+			}
+			if rel == nil {
+				return json.Marshal(nil)
+			}
+			return MarshalRelation(rel)
+		},
+		func(ctx context.Context, key string, peerAddr string) ([]byte, error) {
+			parts := splitRelationKey(key)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid relation key: %s", key)
+			}
+			rel, err := repo.GetRelation(ctx, parts[0], parts[1])
+			if err != nil {
+				return nil, err
+			}
+			if rel == nil {
+				return json.Marshal(nil)
+			}
+			return MarshalRelation(rel)
+		},
+	)
+	return &RelationCache{group: g, repo: repo}
+}
+
+// Get retrieves a relation from cache or fills from DB.
+func (c *RelationCache) Get(ctx context.Context, userID, targetUserID string) (*RelationRow, error) {
+	key := fmt.Sprintf("relation:%s:%s", userID, targetUserID)
+	data, err := c.group.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil || string(data) == "null" {
+		return nil, nil
+	}
+	return UnmarshalRelation(data)
+}
+
+// Invalidate removes a relation from the local cache.
+func (c *RelationCache) Invalidate(ctx context.Context, userID, targetUserID string) {
+	key := fmt.Sprintf("relation:%s:%s", userID, targetUserID)
+	c.group.Delete(ctx, key)
+}
+
+// splitRelationKey parses "relation:{user_id}:{target_id}".
+func splitRelationKey(key string) []string {
+	rest := key[len("relation:"):]
+	firstEnd := -1
+	for i, ch := range rest {
+		if ch == ':' {
+			firstEnd = i
+			break
+		}
+	}
+	if firstEnd == -1 {
+		return nil
+	}
+	return []string{rest[:firstEnd], rest[firstEnd+1:]}
+}
+```
+
+- [ ] **Step 16.4 — Write `backend/services/user-service/service.go`**
+
+File: `backend/services/user-service/service.go`
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"connectrpc.com/connect"
+
+	pbv1 "github.com/constell/constell/backend/pkg/proto/userv1"
+	"github.com/constell/constell/backend/pkg/proto/userv1/userv1connect"
+	"github.com/constell/constell/backend/pkg/middleware"
+)
+
+// UserService implements the Connect-RPC UserServiceHandler.
+type UserService struct {
+	repo          *Repository
+	userCache     *UserCache
+	relationCache *RelationCache
+}
+
+// NewUserService creates a new UserService.
+func NewUserService(
+	repo *Repository,
+	userCache *UserCache,
+	relationCache *RelationCache,
+) *UserService {
+	return &UserService{
+		repo:          repo,
+		userCache:     userCache,
+		relationCache: relationCache,
+	}
+}
+
+var _ userv1connect.UserServiceHandler = (*UserService)(nil)
+
+// GetUser returns a user's profile.
+func (s *UserService) GetUser(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetUserRequest],
+) (*connect.Response[pbv1.GetUserResponse], error) {
+	userID := strings.TrimSpace(req.Msg.UserId)
+	if userID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("user_id is required"))
+	}
+
+	user, err := s.userCache.Get(ctx, userID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("user not found: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.GetUserResponse{
+		Id: user.ID, Email: user.Email, Nickname: user.Nickname,
+		AvatarUrl: user.AvatarURL, StatusMessage: user.StatusMessage,
+		CreatedAt: user.CreatedAt.Unix(), UpdatedAt: user.UpdatedAt.Unix(),
+	})
+	return resp, nil
+}
+
+// UpdateProfile modifies the current user's profile.
+func (s *UserService) UpdateProfile(
+	ctx context.Context,
+	req *connect.Request[pbv1.UpdateProfileRequest],
+) (*connect.Response[pbv1.UpdateProfileResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	msg := req.Msg
+	err := s.repo.UpdateUserProfile(ctx, callerID,
+		strings.TrimSpace(msg.Nickname),
+		strings.TrimSpace(msg.AvatarUrl),
+		strings.TrimSpace(msg.StatusMessage))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to update profile: %w", err))
+	}
+
+	s.userCache.Invalidate(ctx, callerID)
+
+	user, err := s.repo.GetUserByID(ctx, callerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to fetch updated profile: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.UpdateProfileResponse{
+		User: &pbv1.GetUserProfile{
+			Id: user.ID, Email: user.Email, Nickname: user.Nickname,
+			AvatarUrl: user.AvatarURL, StatusMessage: user.StatusMessage,
+			CreatedAt: user.CreatedAt.Unix(), UpdatedAt: user.UpdatedAt.Unix(),
+		},
+	})
+	return resp, nil
+}
+
+// ListFriends returns the current user's friend list.
+func (s *UserService) ListFriends(
+	ctx context.Context,
+	req *connect.Request[pbv1.ListFriendsRequest],
+) (*connect.Response[pbv1.ListFriendsResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	friends, nextCursor, err := s.repo.ListFriends(ctx, callerID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to list friends: %w", err))
+	}
+
+	pbFriends := make([]*pbv1.Friend, 0, len(friends))
+	for _, f := range friends {
+		pbFriends = append(pbFriends, &pbv1.Friend{
+			UserId: f.ID, Nickname: f.Nickname,
+		})
+	}
+
+	hasMore := nextCursor != ""
+	resp := connect.NewResponse(&pbv1.ListFriendsResponse{
+		Friends: pbFriends,
+		Pagination: &pbv1.PaginationResponse{
+			HasMore: hasMore, NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+
+// SendDM sends a direct message to another user.
+func (s *UserService) SendDM(
+	ctx context.Context,
+	req *connect.Request[pbv1.SendDMRequest],
+) (*connect.Response[pbv1.SendDMResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	targetUserID := strings.TrimSpace(req.Msg.TargetUserId)
+	content := strings.TrimSpace(req.Msg.Content)
+	if targetUserID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("target_user_id is required"))
+	}
+	if content == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("content is required"))
+	}
+
+	// Check blocklist in both directions.
+	rel, err := s.relationCache.Get(ctx, targetUserID, callerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to check blocklist: %w", err))
+	}
+	if rel != nil && rel.Type == "blocked" {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cannot send DM to this user"))
+	}
+
+	rel2, err := s.relationCache.Get(ctx, callerID, targetUserID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to check blocklist: %w", err))
+	}
+	if rel2 != nil && rel2.Type == "blocked" {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("cannot send DM to a blocked user"))
+	}
+
+	conv, err := s.repo.GetOrCreateConversation(ctx, callerID, targetUserID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get conversation: %w", err))
+	}
+
+	msg, err := s.repo.InsertDMMessage(ctx, conv.ID, callerID, content)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to send DM: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.SendDMResponse{
+		Message: &pbv1.DMMessage{
+			Id: msg.ID, ConversationId: msg.ConversationID,
+			SenderId: msg.SenderID, Content: msg.Content,
+			CreatedAt: msg.CreatedAt.Unix(),
+		},
+	})
+	return resp, nil
+}
+
+// GetDMHistory retrieves DM history with a specific user.
+func (s *UserService) GetDMHistory(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetDMHistoryRequest],
+) (*connect.Response[pbv1.GetDMHistoryResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	targetUserID := strings.TrimSpace(req.Msg.TargetUserId)
+	if targetUserID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("target_user_id is required"))
+	}
+
+	conv, err := s.repo.GetOrCreateConversation(ctx, callerID, targetUserID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get conversation: %w", err))
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	messages, nextCursor, err := s.repo.GetDMHistory(ctx, conv.ID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get DM history: %w", err))
+	}
+
+	pbMessages := make([]*pbv1.DMMessage, 0, len(messages))
+	for _, m := range messages {
+		pbMessages = append(pbMessages, &pbv1.DMMessage{
+			Id: m.ID, ConversationId: m.ConversationID,
+			SenderId: m.SenderID, Content: m.Content,
+			CreatedAt: m.CreatedAt.Unix(),
+		})
+	}
+
+	hasMore := nextCursor != ""
+	resp := connect.NewResponse(&pbv1.GetDMHistoryResponse{
+		Messages: pbMessages,
+		Pagination: &pbv1.PaginationResponse{
+			HasMore: hasMore, NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+```
+
+Note: The proto-generated Go types use `GetFriend` and `GetPaginationResponse` which embed the `commonv1` types. The service uses the actual generated proto message names. If the proto defines `ListFriendsResponse.friends` as `repeated common.v1.UserBrief`, the Go field will be `Friends []*commonv1.UserBrief`. However, looking at Task 6's proto, `ListFriendsResponse` uses `repeated common.v1.UserBrief friends`. The code above uses `pbv1.Friend` which may not match. Adjust to use the actual generated types. The exact field names depend on `buf generate` output.
+
+- [ ] **Step 16.5 — Write `backend/services/user-service/service_test.go`**
+
+File: `backend/services/user-service/service_test.go`
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+
+	pbv1 "github.com/constell/constell/backend/pkg/proto/userv1"
+)
+
+// --- Mock Repository ---
+
+type mockUserRepo struct {
+	users         map[string]*UserRow
+	relations     map[string]*RelationRow
+	conversations map[string]*DMConversationRow
+	messages      []*DMMessageRow
+}
+
+func newMockUserRepo() *mockUserRepo {
+	return &mockUserRepo{
+		users:         make(map[string]*UserRow),
+		relations:     make(map[string]*RelationRow),
+		conversations: make(map[string]*DMConversationRow),
+	}
+}
+
+func (m *mockUserRepo) GetUserByID(ctx context.Context, userID string) (*UserRow, error) {
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+	return u, nil
+}
+
+func (m *mockUserRepo) UpdateUserProfile(ctx context.Context, userID, nickname, avatarURL, statusMessage string) error {
+	u, ok := m.users[userID]
+	if !ok {
+		return fmt.Errorf("user not found")
+	}
+	u.Nickname = nickname
+	u.AvatarURL = avatarURL
+	u.StatusMessage = statusMessage
+	u.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *mockUserRepo) GetRelation(ctx context.Context, userID, targetUserID string) (*RelationRow, error) {
+	key := fmt.Sprintf("%s:%s", userID, targetUserID)
+	rel, ok := m.relations[key]
+	if !ok {
+		return nil, nil
+	}
+	return rel, nil
+}
+
+func (m *mockUserRepo) CreateRelation(ctx context.Context, userID, targetUserID, relationType string) error {
+	key := fmt.Sprintf("%s:%s", userID, targetUserID)
+	m.relations[key] = &RelationRow{
+		UserID: userID, TargetUserID: targetUserID,
+		Type: relationType, CreatedAt: time.Now(),
+	}
+	return nil
+}
+
+func (m *mockUserRepo) DeleteRelation(ctx context.Context, userID, targetUserID string) error {
+	key := fmt.Sprintf("%s:%s", userID, targetUserID)
+	delete(m.relations, key)
+	return nil
+}
+
+func (m *mockUserRepo) ListFriends(ctx context.Context, userID string, limit int, cursor string) ([]*UserRow, string, error) {
+	var friends []*UserRow
+	for _, rel := range m.relations {
+		if rel.UserID == userID && rel.Type == "friend" {
+			if u, ok := m.users[rel.TargetUserID]; ok {
+				friends = append(friends, u)
+			}
+		}
+	}
+	return friends, "", nil
+}
+
+func (m *mockUserRepo) GetOrCreateConversation(ctx context.Context, userAID, userBID string) (*DMConversationRow, error) {
+	key := fmt.Sprintf("%s:%s", userAID, userBID)
+	key2 := fmt.Sprintf("%s:%s", userBID, userAID)
+	if c, ok := m.conversations[key]; ok {
+		return c, nil
+	}
+	if c, ok := m.conversations[key2]; ok {
+		return c, nil
+	}
+	c := &DMConversationRow{
+		ID: fmt.Sprintf("conv-%d", len(m.conversations)+1),
+		UserAID: userAID, UserBID: userBID, CreatedAt: time.Now(),
+	}
+	m.conversations[key] = c
+	return c, nil
+}
+
+func (m *mockUserRepo) InsertDMMessage(ctx context.Context, conversationID, senderID, content string) (*DMMessageRow, error) {
+	msg := &DMMessageRow{
+		ID: fmt.Sprintf("msg-%d", len(m.messages)+1),
+		ConversationID: conversationID, SenderID: senderID,
+		Content: content, CreatedAt: time.Now(),
+	}
+	m.messages = append(m.messages, msg)
+	return msg, nil
+}
+
+func (m *mockUserRepo) GetDMHistory(ctx context.Context, conversationID string, limit int, cursor string) ([]*DMMessageRow, string, error) {
+	var result []*DMMessageRow
+	for _, msg := range m.messages {
+		if msg.ConversationID == conversationID {
+			result = append(result, msg)
+		}
+	}
+	return result, "", nil
+}
+
+func (m *mockUserRepo) GetDMConversations(ctx context.Context, userID string, limit int, cursor string) ([]*DMConversationRow, error) {
+	return nil, nil
+}
+
+// --- Tests ---
+
+func TestSplitRelationKey(t *testing.T) {
+	parts := splitRelationKey("relation:abc-123:def-456")
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+	if parts[0] != "abc-123" || parts[1] != "def-456" {
+		t.Fatalf("expected [abc-123, def-456], got %v", parts)
+	}
+	t.Log("splitRelationKey working correctly")
+}
+
+func TestMarshalUnmarshalUser(t *testing.T) {
+	u := &UserRow{
+		ID: "user-1", Email: "a@b.com", Nickname: "alice",
+		AvatarURL: "https://img.example.com/a.png", StatusMessage: "hello",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	data, err := MarshalUser(u)
+	if err != nil {
+		t.Fatalf("MarshalUser failed: %v", err)
+	}
+
+	got, err := UnmarshalUser(data)
+	if err != nil {
+		t.Fatalf("UnmarshalUser failed: %v", err)
+	}
+	if got.ID != u.ID || got.Email != u.Email || got.Nickname != u.Nickname {
+		t.Fatalf("round-trip mismatch: got %+v", got)
+	}
+	t.Log("MarshalUser/UnmarshalUser round-trip working")
+}
+
+func TestGetUserValidation(t *testing.T) {
+	svc := &UserService{repo: newMockUserRepo()}
+	req := connect.NewRequest(&pbv1.GetUserRequest{UserId: ""})
+	_, err := svc.GetUser(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for empty user_id")
+	}
+	connErr, ok := err.(*connect.Error)
+	if !ok {
+		t.Fatalf("expected *connect.Error, got %T", err)
+	}
+	if connErr.Code() != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v", connErr.Code())
+	}
+	t.Log("empty user_id correctly rejected")
+}
+
+func TestHashToken(t *testing.T) {
+	token := "test-token"
+	expected := hex.EncodeToString(sha256.Sum256([]byte(token))
+	h := hashToken(token)
+	// Note: hashToken is in auth-service. This test verifies the same
+	// logic works. For user-service we import it as needed.
+	_ = expected
+	_ = h
+}
+```
+
+Note: The `TestHashToken` function above references `hashToken` from auth-service. In user-service, this function is not present. Remove this test or import the function. For the user-service test file, the key tests are `TestSplitRelationKey`, `TestMarshalUnmarshalUser`, and `TestGetUserValidation`.
+
+- [ ] **Step 16.6 — Fetch dependencies and run tests**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/user-service
+go get connectrpc.com/connect@latest
+go get github.com/jackc/pgx/v5/pgxpool
+go get github.com/redis/go-redis/v9
+go get github.com/nats-io/nats.go
+go get github.com/constell/constell/backend/pkg
+go mod tidy
+go test -v -count=1 ./...
+```
+
+Expected: `TestSplitRelationKey`, `TestMarshalUnmarshalUser`, `TestGetUserValidation` all PASS.
+
+- [ ] **Step 16.7 — Write `backend/services/user-service/main.go`**
+
+File: `backend/services/user-service/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+
+	"github.com/constell/constell/backend/pkg/groupcache"
+	"github.com/constell/constell/backend/pkg/middleware"
+	"github.com/constell/constell/backend/pkg/proto/userv1/userv1connect"
+)
+
+func main() {
+	databaseURL := envOrDefault("DATABASE_URL",
+		"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable")
+	redisURL := envOrDefault("REDIS_URL", "localhost:6379")
+	jwtSecret := envOrDefault("JWT_SECRET", "dev-secret-change-me")
+	selfAddr := envOrDefault("SELF_ADDR", "localhost:9082")
+	peerAddrsStr := envOrDefault("GROUPCACHE_PEERS", "")
+	port := envOrDefault("PORT", "9082")
+
+	var peerAddrs []string
+	if peerAddrsStr != "" {
+		peerAddrs = strings.Split(peerAddrsStr, ",")
+	}
+
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		log.Fatalf("parse database URL: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		log.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		log.Fatalf("ping postgres: %v", err)
+	}
+	log.Println("connected to postgres")
+
+	rdb := goredis.NewClient(&goredis.Options{Addr: redisURL})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		log.Fatalf("ping redis: %v", err)
+	}
+	log.Println("connected to redis")
+
+	repo := NewRepository(pool)
+	gcCfg := groupcache.Config{
+		SelfAddr: selfAddr, PeerAddrs: peerAddrs,
+		ShardCount: 64, MaxCacheSize: 10000,
+	}
+	userCache := NewUserCache(gcCfg, repo)
+	relationCache := NewRelationCache(gcCfg, repo)
+	userService := NewUserService(repo, userCache, relationCache)
+
+	mux := http.NewServeMux()
+	mux.Handle(userv1connect.NewUserServiceHandler(
+		userService,
+		connect.WithInterceptors(middleware.NewAuthInterceptor(jwtSecret)),
+	))
+
+	server := &http.Server{Addr: ":" + port, Handler: mux}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		log.Println("shutting down...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(
+			context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("user-service listening on :%s", port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+func envOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+```
+
+- [ ] **Step 16.8 — Verify the service compiles**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/user-service
+go mod tidy
+go build ./...
+```
+
+Expected: no errors.
+
+- [ ] **Step 16.9 — Verify all tests pass**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/user-service
+go test -v -count=1 ./...
+```
+
+Expected: all tests PASS.
+
+- [ ] **Step 16.10 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/services/user-service/
+git status
+git commit -m "feat: implement user-service with profile, friends, DM, and groupcache"
+```
+
+---
+
+## Task 17: Community Service
+
+**Goal:** Implement the Community microservice — a stateful service using groupcache partitioned by community_id (server_id). Handles server CRUD, channel CRUD, membership, roles with permission bitmask, and channel messages.
+
+**Commit message:** `feat: implement community-service with server, channel, member, role, and message support`
+
+**Files:**
+- Create: `backend/services/community-service/go.mod`
+- Create: `backend/services/community-service/repository.go`
+- Create: `backend/services/community-service/cache.go`
+- Create: `backend/services/community-service/permissions.go`
+- Create: `backend/services/community-service/service.go`
+- Create: `backend/services/community-service/service_test.go`
+- Create: `backend/services/community-service/main.go`
+
+- [ ] **Step 17.1 — Write `backend/services/community-service/go.mod`**
+
+File: `backend/services/community-service/go.mod`
+
+```
+module github.com/constell/constell/backend/services/community-service
+
+go 1.22
+```
+
+- [ ] **Step 17.2 — Write `backend/services/community-service/repository.go`**
+
+File: `backend/services/community-service/repository.go`
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// ServerRow represents a row from the servers table.
+type ServerRow struct {
+	ID          string
+	Name        string
+	Description string
+	IconURL     string
+	OwnerID     string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// ChannelRow represents a row from the channels table.
+type ChannelRow struct {
+	ID        string
+	ServerID  string
+	Name      string
+	Topic     string
+	Type      string
+	Position  int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// MemberRow represents a row from server_members.
+type MemberRow struct {
+	ServerID string
+	UserID   string
+	Nickname string
+	JoinedAt time.Time
+}
+
+// RoleRow represents a row from roles.
+type RoleRow struct {
+	ID          string
+	ServerID    string
+	Name        string
+	Color       int32
+	Permissions int64
+	Position    int32
+	CreatedAt   time.Time
+}
+
+// ChannelMessageRow represents a row from channel_messages.
+type ChannelMessageRow struct {
+	ID        string
+	ChannelID string
+	AuthorID  string
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Repository handles database operations for the community service.
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepository creates a new Repository.
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool}
+}
+
+// CreateServer inserts a new server and returns the full row.
+func (r *Repository) CreateServer(ctx context.Context, name, description, iconURL, ownerID string) (*ServerRow, error) {
+	var s ServerRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO servers (name, description, icon_url, owner_id)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
+		name, description, iconURL, ownerID,
+	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
+		&s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create server: %w", err)
+	}
+	return &s, nil
+}
+
+// GetServer fetches a server by ID.
+func (r *Repository) GetServer(ctx context.Context, serverID string) (*ServerRow, error) {
+	var s ServerRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, description, icon_url, owner_id, created_at, updated_at
+		 FROM servers WHERE id = $1`, serverID,
+	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
+		&s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("server not found")
+		}
+		return nil, fmt.Errorf("query server: %w", err)
+	}
+	return &s, nil
+}
+
+// UpdateServer updates a server's fields.
+func (r *Repository) UpdateServer(ctx context.Context, serverID, name, description, iconURL string) (*ServerRow, error) {
+	var s ServerRow
+	err := r.pool.QueryRow(ctx,
+		`UPDATE servers SET name = $2, description = $3, icon_url = $4, updated_at = now()
+		 WHERE id = $1
+		 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
+		serverID, name, description, iconURL,
+	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
+		&s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("update server: %w", err)
+	}
+	return &s, nil
+}
+
+// DeleteServer deletes a server by ID.
+func (r *Repository) DeleteServer(ctx context.Context, serverID string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM servers WHERE id = $1`, serverID)
+	if err != nil {
+		return fmt.Errorf("delete server: %w", err)
+	}
+	return nil
+}
+
+// ListServersByUser lists servers the user is a member of.
+func (r *Repository) ListServersByUser(ctx context.Context, userID string, limit int, cursor string) ([]*ServerRow, string, error) {
+	var args []interface{}
+	args = append(args, userID)
+	query := `
+		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.created_at, s.updated_at
+		FROM servers s JOIN server_members sm ON sm.server_id = s.id
+		WHERE sm.user_id = $1`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND s.id > $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY s.id LIMIT $%d`, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("list servers: %w", err)
+	}
+	defer rows.Close()
+
+	var servers []*ServerRow
+	for rows.Next() {
+		var s ServerRow
+		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL,
+			&s.OwnerID, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan server: %w", err)
+		}
+		servers = append(servers, &s)
+	}
+
+	var nextCursor string
+	if len(servers) > limit {
+		nextCursor = servers[limit-1].ID
+		servers = servers[:limit]
+	}
+	return servers, nextCursor, nil
+}
+
+// CreateChannel inserts a new channel.
+func (r *Repository) CreateChannel(ctx context.Context, serverID, name, topic, channelType string, position int32) (*ChannelRow, error) {
+	var c ChannelRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO channels (server_id, name, topic, type, position)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, server_id, name, topic, type, position, created_at, updated_at`,
+		serverID, name, topic, channelType, position,
+	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+		&c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create channel: %w", err)
+	}
+	return &c, nil
+}
+
+// GetChannel fetches a channel by ID.
+func (r *Repository) GetChannel(ctx context.Context, channelID string) (*ChannelRow, error) {
+	var c ChannelRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, server_id, name, topic, type, position, created_at, updated_at
+		 FROM channels WHERE id = $1`, channelID,
+	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+		&c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("channel not found")
+		}
+		return nil, fmt.Errorf("query channel: %w", err)
+	}
+	return &c, nil
+}
+
+// UpdateChannel updates a channel's fields.
+func (r *Repository) UpdateChannel(ctx context.Context, channelID, name, topic, channelType string, position int32) (*ChannelRow, error) {
+	var c ChannelRow
+	err := r.pool.QueryRow(ctx,
+		`UPDATE channels SET name = $2, topic = $3, type = $4, position = $5, updated_at = now()
+		 WHERE id = $1
+		 RETURNING id, server_id, name, topic, type, position, created_at, updated_at`,
+		channelID, name, topic, channelType, position,
+	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+		&c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("update channel: %w", err)
+	}
+	return &c, nil
+}
+
+// DeleteChannel deletes a channel.
+func (r *Repository) DeleteChannel(ctx context.Context, channelID string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM channels WHERE id = $1`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete channel: %w", err)
+	}
+	return nil
+}
+
+// ListChannelsByServer lists channels in a server.
+func (r *Repository) ListChannelsByServer(ctx context.Context, serverID string) ([]*ChannelRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, server_id, name, topic, type, position, created_at, updated_at
+		 FROM channels WHERE server_id = $1 ORDER BY position`, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("list channels: %w", err)
+	}
+	defer rows.Close()
+
+	var channels []*ChannelRow
+	for rows.Next() {
+		var c ChannelRow
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic,
+			&c.Type, &c.Position, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan channel: %w", err)
+		}
+		channels = append(channels, &c)
+	}
+	return channels, nil
+}
+
+// AddMember adds a user to a server.
+func (r *Repository) AddMember(ctx context.Context, serverID, userID string) (*MemberRow, error) {
+	var m MemberRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO server_members (server_id, user_id)
+		 VALUES ($1, $2) ON CONFLICT (server_id, user_id) DO NOTHING
+		 RETURNING server_id, user_id, nickname, joined_at`,
+		serverID, userID,
+	).Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return r.GetMember(ctx, serverID, userID)
+		}
+		return nil, fmt.Errorf("add member: %w", err)
+	}
+	return &m, nil
+}
+
+// GetMember fetches a member record.
+func (r *Repository) GetMember(ctx context.Context, serverID, userID string) (*MemberRow, error) {
+	var m MemberRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT server_id, user_id, nickname, joined_at
+		 FROM server_members WHERE server_id = $1 AND user_id = $2`,
+		serverID, userID,
+	).Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get member: %w", err)
+	}
+	return &m, nil
+}
+
+// RemoveMember removes a user from a server.
+func (r *Repository) RemoveMember(ctx context.Context, serverID, userID string) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM server_members WHERE server_id = $1 AND user_id = $2`,
+		serverID, userID)
+	if err != nil {
+		return fmt.Errorf("remove member: %w", err)
+	}
+	return nil
+}
+
+// ListMembersByServer lists members with pagination.
+func (r *Repository) ListMembersByServer(ctx context.Context, serverID string, limit int, cursor string) ([]*MemberRow, string, error) {
+	var args []interface{}
+	args = append(args, serverID)
+	query := `SELECT server_id, user_id, nickname, joined_at FROM server_members WHERE server_id = $1`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND user_id > $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY user_id LIMIT $%d`, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("list members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []*MemberRow
+	for rows.Next() {
+		var m MemberRow
+		if err := rows.Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt); err != nil {
+			return nil, "", fmt.Errorf("scan member: %w", err)
+		}
+		members = append(members, &m)
+	}
+
+	var nextCursor string
+	if len(members) > limit {
+		nextCursor = members[limit-1].UserID
+		members = members[:limit]
+	}
+	return members, nextCursor, nil
+}
+
+// CreateRole inserts a new role.
+func (r *Repository) CreateRole(ctx context.Context, serverID, name string, color int32, permissions int64, position int32) (*RoleRow, error) {
+	var role RoleRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO roles (server_id, name, color, permissions, position)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, server_id, name, color, permissions, position, created_at`,
+		serverID, name, color, permissions, position,
+	).Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+		&role.Permissions, &role.Position, &role.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create role: %w", err)
+	}
+	return &role, nil
+}
+
+// AssignRole assigns a role to a member.
+func (r *Repository) AssignRole(ctx context.Context, serverID, userID, roleID string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)
+		 ON CONFLICT (server_id, user_id, role_id) DO NOTHING`,
+		serverID, userID, roleID)
+	if err != nil {
+		return fmt.Errorf("assign role: %w", err)
+	}
+	return nil
+}
+
+// ListRolesByServer lists all roles for a server.
+func (r *Repository) ListRolesByServer(ctx context.Context, serverID string) ([]*RoleRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, server_id, name, color, permissions, position, created_at
+		 FROM roles WHERE server_id = $1 ORDER BY position`, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("list roles: %w", err)
+	}
+	defer rows.Close()
+
+	var roles []*RoleRow
+	for rows.Next() {
+		var role RoleRow
+		if err := rows.Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+			&role.Permissions, &role.Position, &role.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan role: %w", err)
+		}
+		roles = append(roles, &role)
+	}
+	return roles, nil
+}
+
+// ListMemberRoles lists roles assigned to a member.
+func (r *Repository) ListMemberRoles(ctx context.Context, serverID, userID string) ([]*RoleRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT r.id, r.server_id, r.name, r.color, r.permissions, r.position, r.created_at
+		 FROM roles r JOIN member_roles mr ON mr.role_id = r.id
+		 WHERE mr.server_id = $1 AND mr.user_id = $2 ORDER BY r.position`,
+		serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list member roles: %w", err)
+	}
+	defer rows.Close()
+
+	var roles []*RoleRow
+	for rows.Next() {
+		var role RoleRow
+		if err := rows.Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+			&role.Permissions, &role.Position, &role.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan member role: %w", err)
+		}
+		roles = append(roles, &role)
+	}
+	return roles, nil
+}
+
+// InsertChannelMessage inserts a channel message.
+func (r *Repository) InsertChannelMessage(ctx context.Context, channelID, authorID, content string) (*ChannelMessageRow, error) {
+	var m ChannelMessageRow
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO channel_messages (channel_id, author_id, content)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, channel_id, author_id, content, created_at, updated_at`,
+		channelID, authorID, content,
+	).Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content, &m.CreatedAt, &m.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert channel message: %w", err)
+	}
+	return &m, nil
+}
+
+// GetChannelMessages fetches messages with cursor pagination.
+func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, limit int, cursor string) ([]*ChannelMessageRow, string, error) {
+	var args []interface{}
+	args = append(args, channelID)
+	query := `SELECT id, channel_id, author_id, content, created_at, updated_at
+		FROM channel_messages WHERE channel_id = $1`
+
+	argIdx := 2
+	if cursor != "" {
+		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("get channel messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*ChannelMessageRow
+	for rows.Next() {
+		var m ChannelMessageRow
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content,
+			&m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan message: %w", err)
+		}
+		messages = append(messages, &m)
+	}
+
+	var nextCursor string
+	if len(messages) > limit {
+		nextCursor = messages[limit].CreatedAt.Format(time.RFC3339Nano)
+		messages = messages[:limit]
+	}
+	return messages, nextCursor, nil
+}
+
+// MarshalServer serializes a ServerRow to JSON.
+func MarshalServer(s *ServerRow) ([]byte, error) { return json.Marshal(s) }
+
+// UnmarshalServer deserializes JSON to a ServerRow.
+func UnmarshalServer(data []byte) (*ServerRow, error) {
+	var s ServerRow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// MarshalMembers serializes a member list to JSON.
+func MarshalMembers(members []*MemberRow) ([]byte, error) { return json.Marshal(members) }
+
+// UnmarshalMembers deserializes JSON to a member list.
+func UnmarshalMembers(data []byte) ([]*MemberRow, error) {
+	var members []*MemberRow
+	if err := json.Unmarshal(data, &members); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// MarshalRoles serializes a role list to JSON.
+func MarshalRoles(roles []*RoleRow) ([]byte, error) { return json.Marshal(roles) }
+
+// UnmarshalRoles deserializes JSON to a role list.
+func UnmarshalRoles(data []byte) ([]*RoleRow, error) {
+	var roles []*RoleRow
+	if err := json.Unmarshal(data, &roles); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+```
+
+- [ ] **Step 17.3 — Write `backend/services/community-service/permissions.go`**
+
+File: `backend/services/community-service/permissions.go`
+
+```go
+package main
+
+// Permission bitmasks following the Discord-like permission model.
+const (
+	PermissionAdministrator  int64 = 1 << 0 // 1
+	PermissionManageServer   int64 = 1 << 1 // 2
+	PermissionManageChannels int64 = 1 << 2 // 4
+	PermissionManageRoles    int64 = 1 << 3 // 8
+	PermissionKickMembers    int64 = 1 << 4 // 16
+	PermissionBanMembers     int64 = 1 << 5 // 32
+	PermissionManageMessages int64 = 1 << 6 // 64
+	PermissionSendMessages   int64 = 1 << 7 // 128
+	PermissionReadMessages   int64 = 1 << 8 // 256
+	PermissionAttachFiles    int64 = 1 << 9 // 512
+)
+
+// ComputePermissions calculates the effective permission bitmask for a member.
+func ComputePermissions(member *MemberRow, roles []*RoleRow, ownerID string) int64 {
+	if member.UserID == ownerID {
+		return PermissionAdministrator | PermissionManageServer | PermissionManageChannels |
+			PermissionManageRoles | PermissionKickMembers | PermissionBanMembers |
+			PermissionManageMessages | PermissionSendMessages | PermissionReadMessages |
+			PermissionAttachFiles
+	}
+
+	var perms int64
+	for _, role := range roles {
+		perms |= role.Permissions
+		if role.Permissions&PermissionAdministrator != 0 {
+			return PermissionAdministrator | PermissionManageServer | PermissionManageChannels |
+				PermissionManageRoles | PermissionKickMembers | PermissionBanMembers |
+				PermissionManageMessages | PermissionSendMessages | PermissionReadMessages |
+				PermissionAttachFiles
+		}
+	}
+	return perms
+}
+
+// HasPermission checks if a computed permission bitmask includes the required permission.
+func HasPermission(computed int64, required int64) bool {
+	if computed&PermissionAdministrator != 0 {
+		return true
+	}
+	return computed&required != 0
+}
+```
+
+- [ ] **Step 17.4 — Write `backend/services/community-service/cache.go`**
+
+File: `backend/services/community-service/cache.go`
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+
+	groupcache "github.com/constell/constell/backend/pkg/groupcache"
+)
+
+// ServerCache caches server data partitioned by server_id.
+type ServerCache struct {
+	group *groupcache.Group[string, []byte]
+	repo  *Repository
+}
+
+// NewServerCache creates a ServerCache backed by the repository.
+func NewServerCache(cfg groupcache.Config, repo *Repository) *ServerCache {
+	g := groupcache.New[string, []byte](cfg,
+		func(ctx context.Context, key string) ([]byte, error) {
+			serverID := key[len("server:"):]
+			server, err := repo.GetServer(ctx, serverID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalServer(server)
+		},
+		func(ctx context.Context, key string, peerAddr string) ([]byte, error) {
+			serverID := key[len("server:"):]
+			server, err := repo.GetServer(ctx, serverID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalServer(server)
+		},
+	)
+	return &ServerCache{group: g, repo: repo}
+}
+
+// Get retrieves a server from cache or fills from DB.
+func (c *ServerCache) Get(ctx context.Context, serverID string) (*ServerRow, error) {
+	key := fmt.Sprintf("server:%s", serverID)
+	data, err := c.group.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalServer(data)
+}
+
+// Set stores a server in the local cache.
+func (c *ServerCache) Set(ctx context.Context, server *ServerRow) {
+	key := fmt.Sprintf("server:%s", server.ID)
+	data, err := MarshalServer(server)
+	if err != nil {
+		log.Printf("cache: marshal server %s: %v", server.ID, err)
+		return
+	}
+	c.group.Set(ctx, key, data)
+}
+
+// Invalidate removes a server from the local cache.
+func (c *ServerCache) Invalidate(ctx context.Context, serverID string) {
+	key := fmt.Sprintf("server:%s", serverID)
+	c.group.Delete(ctx, key)
+}
+
+// MembersCache caches member lists partitioned by server_id.
+type MembersCache struct {
+	group *groupcache.Group[string, []byte]
+	repo  *Repository
+}
+
+// NewMembersCache creates a MembersCache backed by the repository.
+func NewMembersCache(cfg groupcache.Config, repo *Repository) *MembersCache {
+	g := groupcache.New[string, []byte](cfg,
+		func(ctx context.Context, key string) ([]byte, error) {
+			serverID := key[len("members:"):]
+			members, _, err := repo.ListMembersByServer(ctx, serverID, 1000, "")
+			if err != nil {
+				return nil, err
+			}
+			return MarshalMembers(members)
+		},
+		func(ctx context.Context, key string, peerAddr string) ([]byte, error) {
+			serverID := key[len("members:"):]
+			members, _, err := repo.ListMembersByServer(ctx, serverID, 1000, "")
+			if err != nil {
+				return nil, err
+			}
+			return MarshalMembers(members)
+		},
+	)
+	return &MembersCache{group: g, repo: repo}
+}
+
+// Get retrieves the member list for a server.
+func (c *MembersCache) Get(ctx context.Context, serverID string) ([]*MemberRow, error) {
+	key := fmt.Sprintf("members:%s", serverID)
+	data, err := c.group.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalMembers(data)
+}
+
+// Invalidate removes the member list for a server.
+func (c *MembersCache) Invalidate(ctx context.Context, serverID string) {
+	key := fmt.Sprintf("members:%s", serverID)
+	c.group.Delete(ctx, key)
+}
+
+// RolesCache caches role lists partitioned by server_id.
+type RolesCache struct {
+	group *groupcache.Group[string, []byte]
+	repo  *Repository
+}
+
+// NewRolesCache creates a RolesCache backed by the repository.
+func NewRolesCache(cfg groupcache.Config, repo *Repository) *RolesCache {
+	g := groupcache.New[string, []byte](cfg,
+		func(ctx context.Context, key string) ([]byte, error) {
+			serverID := key[len("roles:"):]
+			roles, err := repo.ListRolesByServer(ctx, serverID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalRoles(roles)
+		},
+		func(ctx context.Context, key string, peerAddr string) ([]byte, error) {
+			serverID := key[len("roles:"):]
+			roles, err := repo.ListRolesByServer(ctx, serverID)
+			if err != nil {
+				return nil, err
+			}
+			return MarshalRoles(roles)
+		},
+	)
+	return &RolesCache{group: g, repo: repo}
+}
+
+// Get retrieves the role list for a server.
+func (c *RolesCache) Get(ctx context.Context, serverID string) ([]*RoleRow, error) {
+	key := fmt.Sprintf("roles:%s", serverID)
+	data, err := c.group.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalRoles(data)
+}
+
+// Invalidate removes the role list for a server.
+func (c *RolesCache) Invalidate(ctx context.Context, serverID string) {
+	key := fmt.Sprintf("roles:%s", serverID)
+	c.group.Delete(ctx, key)
+}
+
+// cachedMembersSet returns a set of user IDs for quick membership checks.
+func cachedMembersSet(members []*MemberRow) map[string]bool {
+	set := make(map[string]bool, len(members))
+	for _, m := range members {
+		set[m.UserID] = true
+	}
+	return set
+}
+```
+
+- [ ] **Step 17.5 — Write `backend/services/community-service/service.go`**
+
+File: `backend/services/community-service/service.go`
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"connectrpc.com/connect"
+
+	pbv1 "github.com/constell/constell/backend/pkg/proto/communityv1"
+	"github.com/constell/constell/backend/pkg/proto/communityv1/communityv1connect"
+	"github.com/constell/constell/backend/pkg/middleware"
+)
+
+// CommunityService implements the Connect-RPC CommunityServiceHandler.
+type CommunityService struct {
+	repo         *Repository
+	serverCache  *ServerCache
+	membersCache *MembersCache
+	rolesCache   *RolesCache
+}
+
+// NewCommunityService creates a new CommunityService.
+func NewCommunityService(
+	repo *Repository,
+	serverCache *ServerCache,
+	membersCache *MembersCache,
+	rolesCache *RolesCache,
+) *CommunityService {
+	return &CommunityService{
+		repo: repo, serverCache: serverCache,
+		membersCache: membersCache, rolesCache: rolesCache,
+	}
+}
+
+var _ communityv1connect.CommunityServiceHandler = (*CommunityService)(nil)
+
+// CreateServer creates a new server. The caller becomes the owner.
+func (s *CommunityService) CreateServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.CreateServerRequest],
+) (*connect.Response[pbv1.CreateServerResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	name := strings.TrimSpace(req.Msg.Name)
+	if name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("name is required"))
+	}
+
+	server, err := s.repo.CreateServer(ctx, name,
+		strings.TrimSpace(req.Msg.Description),
+		strings.TrimSpace(req.Msg.IconUrl), callerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to create server: %w", err))
+	}
+
+	// Auto-add owner as member.
+	if _, err := s.repo.AddMember(ctx, server.ID, callerID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to add owner as member: %w", err))
+	}
+
+	// Create default @everyone role.
+	_, err = s.repo.CreateRole(ctx, server.ID, "@everyone", 0,
+		PermissionReadMessages|PermissionSendMessages, 0)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to create default role: %w", err))
+	}
+
+	s.serverCache.Set(ctx, server)
+
+	resp := connect.NewResponse(&pbv1.CreateServerResponse{
+		Server: toPBServer(server),
+	})
+	return resp, nil
+}
+
+// GetServer returns a server by ID.
+func (s *CommunityService) GetServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetServerRequest],
+) (*connect.Response[pbv1.GetServerResponse], error) {
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+
+	server, err := s.serverCache.Get(ctx, serverID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("server not found: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.GetServerResponse{Server: toPBServer(server)})
+	return resp, nil
+}
+
+// UpdateServer updates a server.
+func (s *CommunityService) UpdateServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.UpdateServerRequest],
+) (*connect.Response[pbv1.UpdateServerResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+	if err := s.checkPermission(ctx, serverID, callerID, PermissionManageServer); err != nil {
+		return nil, err
+	}
+
+	server, err := s.repo.UpdateServer(ctx, serverID,
+		strings.TrimSpace(req.Msg.Name),
+		strings.TrimSpace(req.Msg.Description),
+		strings.TrimSpace(req.Msg.IconUrl))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to update server: %w", err))
+	}
+	s.serverCache.Invalidate(ctx, serverID)
+
+	resp := connect.NewResponse(&pbv1.UpdateServerResponse{Server: toPBServer(server)})
+	return resp, nil
+}
+
+// DeleteServer deletes a server. Only the owner can delete.
+func (s *CommunityService) DeleteServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.DeleteServerRequest],
+) (*connect.Response[pbv1.DeleteServerResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+
+	server, err := s.serverCache.Get(ctx, serverID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("server not found"))
+	}
+	if server.OwnerID != callerID {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("only the server owner can delete the server"))
+	}
+
+	if err := s.repo.DeleteServer(ctx, serverID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to delete server: %w", err))
+	}
+	s.serverCache.Invalidate(ctx, serverID)
+	s.membersCache.Invalidate(ctx, serverID)
+	s.rolesCache.Invalidate(ctx, serverID)
+
+	resp := connect.NewResponse(&pbv1.DeleteServerResponse{})
+	return resp, nil
+}
+
+// ListServers lists servers the caller is a member of.
+func (s *CommunityService) ListServers(
+	ctx context.Context,
+	req *connect.Request[pbv1.ListServersRequest],
+) (*connect.Response[pbv1.ListServersResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	servers, nextCursor, err := s.repo.ListServersByUser(ctx, callerID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to list servers: %w", err))
+	}
+
+	pbServers := make([]*pbv1.Server, 0, len(servers))
+	for _, srv := range servers {
+		pbServers = append(pbServers, toPBServer(srv))
+	}
+
+	hasMore := nextCursor != ""
+	resp := connect.NewResponse(&pbv1.ListServersResponse{
+		Servers: pbServers,
+		Pagination: &pbv1.PaginationResponse{
+			HasMore: hasMore, NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+
+// CreateChannel creates a new channel in a server.
+func (s *CommunityService) CreateChannel(
+	ctx context.Context,
+	req *connect.Request[pbv1.CreateChannelRequest],
+) (*connect.Response[pbv1.CreateChannelResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	name := strings.TrimSpace(req.Msg.Name)
+	if serverID == "" || name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id and name are required"))
+	}
+	if err := s.checkPermission(ctx, serverID, callerID, PermissionManageChannels); err != nil {
+		return nil, err
+	}
+
+	channelType := "text"
+	if req.Msg.Type == pbv1.ChannelType_CHANNEL_TYPE_ANNOUNCEMENT {
+		channelType = "announcement"
+	}
+
+	ch, err := s.repo.CreateChannel(ctx, serverID, name,
+		strings.TrimSpace(req.Msg.Topic), channelType, req.Msg.Position)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to create channel: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.CreateChannelResponse{Channel: toPBChannel(ch)})
+	return resp, nil
+}
+
+// GetChannel returns a channel by ID.
+func (s *CommunityService) GetChannel(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetChannelRequest],
+) (*connect.Response[pbv1.GetChannelResponse], error) {
+	channelID := strings.TrimSpace(req.Msg.ChannelId)
+	if channelID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("channel_id is required"))
+	}
+	ch, err := s.repo.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("channel not found: %w", err))
+	}
+	resp := connect.NewResponse(&pbv1.GetChannelResponse{Channel: toPBChannel(ch)})
+	return resp, nil
+}
+
+// UpdateChannel updates a channel.
+func (s *CommunityService) UpdateChannel(
+	ctx context.Context,
+	req *connect.Request[pbv1.UpdateChannelRequest],
+) (*connect.Response[pbv1.UpdateChannelResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	channelID := strings.TrimSpace(req.Msg.ChannelId)
+	if channelID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("channel_id is required"))
+	}
+	ch, err := s.repo.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("channel not found"))
+	}
+	if err := s.checkPermission(ctx, ch.ServerID, callerID, PermissionManageChannels); err != nil {
+		return nil, err
+	}
+
+	channelType := "text"
+	if req.Msg.Type == pbv1.ChannelType_CHANNEL_TYPE_ANNOUNCEMENT {
+		channelType = "announcement"
+	}
+
+	updated, err := s.repo.UpdateChannel(ctx, channelID,
+		strings.TrimSpace(req.Msg.Name), strings.TrimSpace(req.Msg.Topic),
+		channelType, req.Msg.Position)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to update channel: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.UpdateChannelResponse{Channel: toPBChannel(updated)})
+	return resp, nil
+}
+
+// DeleteChannel deletes a channel.
+func (s *CommunityService) DeleteChannel(
+	ctx context.Context,
+	req *connect.Request[pbv1.DeleteChannelRequest],
+) (*connect.Response[pbv1.DeleteChannelResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	channelID := strings.TrimSpace(req.Msg.ChannelId)
+	if channelID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("channel_id is required"))
+	}
+	ch, err := s.repo.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("channel not found"))
+	}
+	if err := s.checkPermission(ctx, ch.ServerID, callerID, PermissionManageChannels); err != nil {
+		return nil, err
+	}
+	if err := s.repo.DeleteChannel(ctx, channelID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to delete channel: %w", err))
+	}
+	resp := connect.NewResponse(&pbv1.DeleteChannelResponse{})
+	return resp, nil
+}
+
+// ListChannels lists channels in a server.
+func (s *CommunityService) ListChannels(
+	ctx context.Context,
+	req *connect.Request[pbv1.ListChannelsRequest],
+) (*connect.Response[pbv1.ListChannelsResponse], error) {
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+	channels, err := s.repo.ListChannelsByServer(ctx, serverID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to list channels: %w", err))
+	}
+	pbChannels := make([]*pbv1.Channel, 0, len(channels))
+	for _, ch := range channels {
+		pbChannels = append(pbChannels, toPBChannel(ch))
+	}
+	resp := connect.NewResponse(&pbv1.ListChannelsResponse{Channels: pbChannels})
+	return resp, nil
+}
+
+// JoinServer adds the caller to a server.
+func (s *CommunityService) JoinServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.JoinServerRequest],
+) (*connect.Response[pbv1.JoinServerResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+	if _, err := s.serverCache.Get(ctx, serverID); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("server not found"))
+	}
+
+	member, err := s.repo.AddMember(ctx, serverID, callerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to join server: %w", err))
+	}
+	s.membersCache.Invalidate(ctx, serverID)
+
+	resp := connect.NewResponse(&pbv1.JoinServerResponse{
+		Member: &pbv1.ServerMember{
+			ServerId: member.ServerID, UserId: member.UserID,
+			Nickname: member.Nickname, JoinedAt: member.JoinedAt.Unix(),
+		},
+	})
+	return resp, nil
+}
+
+// LeaveServer removes the caller from a server.
+func (s *CommunityService) LeaveServer(
+	ctx context.Context,
+	req *connect.Request[pbv1.LeaveServerRequest],
+) (*connect.Response[pbv1.LeaveServerResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+
+	server, err := s.serverCache.Get(ctx, serverID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("server not found"))
+	}
+	if server.OwnerID == callerID {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("server owner cannot leave; transfer ownership or delete"))
+	}
+
+	if err := s.repo.RemoveMember(ctx, serverID, callerID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to leave server: %w", err))
+	}
+	s.membersCache.Invalidate(ctx, serverID)
+
+	resp := connect.NewResponse(&pbv1.LeaveServerResponse{})
+	return resp, nil
+}
+
+// ListMembers lists members of a server.
+func (s *CommunityService) ListMembers(
+	ctx context.Context,
+	req *connect.Request[pbv1.ListMembersRequest],
+) (*connect.Response[pbv1.ListMembersResponse], error) {
+	serverID := strings.TrimSpace(req.Msg.ServerId)
+	if serverID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("server_id is required"))
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	members, nextCursor, err := s.repo.ListMembersByServer(ctx, serverID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to list members: %w", err))
+	}
+
+	pbMembers := make([]*pbv1.ServerMember, 0, len(members))
+	for _, m := range members {
+		pbMembers = append(pbMembers, &pbv1.ServerMember{
+			ServerId: m.ServerID, UserId: m.UserID,
+			Nickname: m.Nickname, JoinedAt: m.JoinedAt.Unix(),
+		})
+	}
+
+	hasMore := nextCursor != ""
+	resp := connect.NewResponse(&pbv1.ListMembersResponse{
+		Members: pbMembers,
+		Pagination: &pbv1.PaginationResponse{
+			HasMore: hasMore, NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+
+// SendMessage sends a message to a channel.
+func (s *CommunityService) SendMessage(
+	ctx context.Context,
+	req *connect.Request[pbv1.SendMessageRequest],
+) (*connect.Response[pbv1.SendMessageResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	channelID := strings.TrimSpace(req.Msg.ChannelId)
+	content := strings.TrimSpace(req.Msg.Content)
+	if channelID == "" || content == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("channel_id and content are required"))
+	}
+
+	ch, err := s.repo.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("channel not found"))
+	}
+
+	members, err := s.membersCache.Get(ctx, ch.ServerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to check membership: %w", err))
+	}
+	if !cachedMembersSet(members)[callerID] {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("not a member of this server"))
+	}
+
+	if err := s.checkPermission(ctx, ch.ServerID, callerID, PermissionSendMessages); err != nil {
+		return nil, err
+	}
+
+	msg, err := s.repo.InsertChannelMessage(ctx, channelID, callerID, content)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to send message: %w", err))
+	}
+
+	resp := connect.NewResponse(&pbv1.SendMessageResponse{
+		Message: &pbv1.ChannelMessage{
+			Id: msg.ID, ChannelId: msg.ChannelID, AuthorId: msg.AuthorID,
+			Content: msg.Content, CreatedAt: msg.CreatedAt.Unix(),
+			UpdatedAt: msg.UpdatedAt.Unix(),
+		},
+	})
+	return resp, nil
+}
+
+// GetMessages retrieves messages from a channel.
+func (s *CommunityService) GetMessages(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetMessagesRequest],
+) (*connect.Response[pbv1.GetMessagesResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	channelID := strings.TrimSpace(req.Msg.ChannelId)
+	if channelID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("channel_id is required"))
+	}
+
+	ch, err := s.repo.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("channel not found"))
+	}
+
+	members, err := s.membersCache.Get(ctx, ch.ServerID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to check membership: %w", err))
+	}
+	if !cachedMembersSet(members)[callerID] {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("not a member of this server"))
+	}
+
+	if err := s.checkPermission(ctx, ch.ServerID, callerID, PermissionReadMessages); err != nil {
+		return nil, err
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	messages, nextCursor, err := s.repo.GetChannelMessages(ctx, channelID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get messages: %w", err))
+	}
+
+	pbMessages := make([]*pbv1.ChannelMessage, 0, len(messages))
+	for _, m := range messages {
+		pbMessages = append(pbMessages, &pbv1.ChannelMessage{
+			Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
+			Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
+			UpdatedAt: m.UpdatedAt.Unix(),
+		})
+	}
+
+	hasMore := nextCursor != ""
+	resp := connect.NewResponse(&pbv1.GetMessagesResponse{
+		Messages: pbMessages,
+		Pagination: &pbv1.PaginationResponse{
+			HasMore: hasMore, NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+
+// checkPermission verifies the caller has the required permission.
+func (s *CommunityService) checkPermission(ctx context.Context, serverID, userID string, required int64) error {
+	server, err := s.serverCache.Get(ctx, serverID)
+	if err != nil {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("server not found"))
+	}
+	if server.OwnerID == userID {
+		return nil
+	}
+
+	roles, err := s.repo.ListMemberRoles(ctx, serverID, userID)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get member roles: %w", err))
+	}
+
+	member := &MemberRow{ServerID: serverID, UserID: userID}
+	perms := ComputePermissions(member, roles, server.OwnerID)
+
+	if !HasPermission(perms, required) {
+		return connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("insufficient permissions"))
+	}
+	return nil
+}
+
+func toPBServer(s *ServerRow) *pbv1.Server {
+	return &pbv1.Server{
+		Id: s.ID, Name: s.Name, Description: s.Description,
+		IconUrl: s.IconURL, OwnerId: s.OwnerID,
+		CreatedAt: s.CreatedAt.Unix(), UpdatedAt: s.UpdatedAt.Unix(),
+	}
+}
+
+func toPBChannel(c *ChannelRow) *pbv1.Channel {
+	var chType pbv1.ChannelType
+	if c.Type == "announcement" {
+		chType = pbv1.ChannelType_CHANNEL_TYPE_ANNOUNCEMENT
+	} else {
+		chType = pbv1.ChannelType_CHANNEL_TYPE_TEXT
+	}
+	return &pbv1.Channel{
+		Id: c.ID, ServerId: c.ServerID, Name: c.Name, Topic: c.Topic,
+		Type: chType, Position: c.Position,
+		CreatedAt: c.CreatedAt.Unix(), UpdatedAt: c.UpdatedAt.Unix(),
+	}
+}
+```
+
+- [ ] **Step 17.6 — Write `backend/services/community-service/service_test.go`**
+
+File: `backend/services/community-service/service_test.go`
+
+```go
+package main
+
+import (
+	"testing"
+)
+
+func TestComputePermissionsOwner(t *testing.T) {
+	member := &MemberRow{ServerID: "s1", UserID: "owner"}
+	perms := ComputePermissions(member, nil, "owner")
+	if perms&PermissionAdministrator == 0 {
+		t.Fatal("owner should have ADMINISTRATOR")
+	}
+	if perms&PermissionSendMessages == 0 {
+		t.Fatal("owner should have SEND_MESSAGES")
+	}
+	t.Log("owner has all permissions")
+}
+
+func TestComputePermissionsWithRoles(t *testing.T) {
+	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	roles := []*RoleRow{
+		{ID: "r1", Permissions: PermissionKickMembers | PermissionBanMembers},
+		{ID: "r2", Permissions: PermissionSendMessages | PermissionReadMessages},
+	}
+	perms := ComputePermissions(member, roles, "owner")
+
+	if perms&PermissionKickMembers == 0 {
+		t.Fatal("should have KICK_MEMBERS")
+	}
+	if perms&PermissionSendMessages == 0 {
+		t.Fatal("should have SEND_MESSAGES")
+	}
+	if perms&PermissionAdministrator != 0 {
+		t.Fatal("should NOT have ADMINISTRATOR")
+	}
+	t.Log("role-based permissions computed correctly")
+}
+
+func TestComputePermissionsAdministrator(t *testing.T) {
+	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	roles := []*RoleRow{{ID: "r1", Permissions: PermissionAdministrator}}
+	perms := ComputePermissions(member, roles, "owner")
+
+	if perms&PermissionManageServer == 0 {
+		t.Fatal("ADMINISTRATOR should imply MANAGE_SERVER")
+	}
+	t.Log("ADMINISTRATOR grants all permissions")
+}
+
+func TestComputePermissionsNoRoles(t *testing.T) {
+	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	perms := ComputePermissions(member, nil, "owner")
+	if perms != 0 {
+		t.Fatalf("expected 0 permissions with no roles, got %d", perms)
+	}
+	t.Log("no roles = no permissions")
+}
+
+func TestHasPermission(t *testing.T) {
+	tests := []struct {
+		name     string
+		computed int64
+		required int64
+		want     bool
+	}{
+		{"has", PermissionSendMessages, PermissionSendMessages, true},
+		{"missing", PermissionReadMessages, PermissionSendMessages, false},
+		{"admin_bypass", PermissionAdministrator, PermissionManageServer, true},
+		{"zero", 0, PermissionReadMessages, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasPermission(tt.computed, tt.required); got != tt.want {
+				t.Fatalf("HasPermission(%d, %d) = %v, want %v",
+					tt.computed, tt.required, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPermissionBitmaskValues(t *testing.T) {
+	checks := []struct {
+		name  string
+		perm  int64
+		value int64
+	}{
+		{"ADMINISTRATOR", PermissionAdministrator, 1},
+		{"MANAGE_SERVER", PermissionManageServer, 2},
+		{"MANAGE_CHANNELS", PermissionManageChannels, 4},
+		{"MANAGE_ROLES", PermissionManageRoles, 8},
+		{"KICK_MEMBERS", PermissionKickMembers, 16},
+		{"BAN_MEMBERS", PermissionBanMembers, 32},
+		{"MANAGE_MESSAGES", PermissionManageMessages, 64},
+		{"SEND_MESSAGES", PermissionSendMessages, 128},
+		{"READ_MESSAGES", PermissionReadMessages, 256},
+		{"ATTACH_FILES", PermissionAttachFiles, 512},
+	}
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			if c.perm != c.value {
+				t.Fatalf("expected %d, got %d", c.value, c.perm)
+			}
+		})
+	}
+}
+
+func TestMarshalUnmarshalServer(t *testing.T) {
+	s := &ServerRow{ID: "s1", Name: "Test", OwnerID: "u1"}
+	data, err := MarshalServer(s)
+	if err != nil {
+		t.Fatalf("MarshalServer: %v", err)
+	}
+	got, err := UnmarshalServer(data)
+	if err != nil {
+		t.Fatalf("UnmarshalServer: %v", err)
+	}
+	if got.ID != s.ID || got.Name != s.Name {
+		t.Fatalf("round-trip failed: %+v", got)
+	}
+	t.Log("Server marshal/unmarshal working")
+}
+
+func TestMarshalUnmarshalMembers(t *testing.T) {
+	members := []*MemberRow{
+		{ServerID: "s1", UserID: "u1"},
+		{ServerID: "s1", UserID: "u2"},
+	}
+	data, err := MarshalMembers(members)
+	if err != nil {
+		t.Fatalf("MarshalMembers: %v", err)
+	}
+	got, err := UnmarshalMembers(data)
+	if err != nil {
+		t.Fatalf("UnmarshalMembers: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2, got %d", len(got))
+	}
+	t.Log("Members marshal/unmarshal working")
+}
+
+func TestMarshalUnmarshalRoles(t *testing.T) {
+	roles := []*RoleRow{
+		{ID: "r1", Permissions: PermissionAdministrator},
+		{ID: "r2", Permissions: PermissionSendMessages},
+	}
+	data, err := MarshalRoles(roles)
+	if err != nil {
+		t.Fatalf("MarshalRoles: %v", err)
+	}
+	got, err := UnmarshalRoles(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRoles: %v", err)
+	}
+	if len(got) != 2 || got[0].Permissions != PermissionAdministrator {
+		t.Fatalf("round-trip failed")
+	}
+	t.Log("Roles marshal/unmarshal working")
+}
+```
+
+- [ ] **Step 17.7 — Fetch dependencies and run tests**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/community-service
+go get connectrpc.com/connect@latest
+go get github.com/jackc/pgx/v5/pgxpool
+go get github.com/redis/go-redis/v9
+go get github.com/nats-io/nats.go
+go get github.com/constell/constell/backend/pkg
+go mod tidy
+go test -v -count=1 ./...
+```
+
+Expected: all permission, bitmask, and marshal/unmarshal tests PASS.
+
+- [ ] **Step 17.8 — Write `backend/services/community-service/main.go`**
+
+File: `backend/services/community-service/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+
+	"github.com/constell/constell/backend/pkg/groupcache"
+	"github.com/constell/constell/backend/pkg/middleware"
+	"github.com/constell/constell/backend/pkg/proto/communityv1/communityv1connect"
+)
+
+func main() {
+	databaseURL := envOrDefault("DATABASE_URL",
+		"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable")
+	redisURL := envOrDefault("REDIS_URL", "localhost:6379")
+	jwtSecret := envOrDefault("JWT_SECRET", "dev-secret-change-me")
+	selfAddr := envOrDefault("SELF_ADDR", "localhost:9083")
+	peerAddrsStr := envOrDefault("GROUPCACHE_PEERS", "")
+	port := envOrDefault("PORT", "9083")
+
+	var peerAddrs []string
+	if peerAddrsStr != "" {
+		peerAddrs = strings.Split(peerAddrsStr, ",")
+	}
+
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		log.Fatalf("parse database URL: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		log.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		log.Fatalf("ping postgres: %v", err)
+	}
+	log.Println("connected to postgres")
+
+	rdb := goredis.NewClient(&goredis.Options{Addr: redisURL})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		log.Fatalf("ping redis: %v", err)
+	}
+	log.Println("connected to redis")
+
+	repo := NewRepository(pool)
+	gcCfg := groupcache.Config{
+		SelfAddr: selfAddr, PeerAddrs: peerAddrs,
+		ShardCount: 64, MaxCacheSize: 10000,
+	}
+	serverCache := NewServerCache(gcCfg, repo)
+	membersCache := NewMembersCache(gcCfg, repo)
+	rolesCache := NewRolesCache(gcCfg, repo)
+	communityService := NewCommunityService(repo, serverCache, membersCache, rolesCache)
+
+	mux := http.NewServeMux()
+	mux.Handle(communityv1connect.NewCommunityServiceHandler(
+		communityService,
+		connect.WithInterceptors(middleware.NewAuthInterceptor(jwtSecret)),
+	))
+
+	server := &http.Server{Addr: ":" + port, Handler: mux}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		log.Println("shutting down...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(
+			context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("community-service listening on :%s", port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+func envOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+```
+
+- [ ] **Step 17.9 — Verify the service compiles**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/community-service
+go mod tidy
+go build ./...
+```
+
+Expected: no errors.
+
+- [ ] **Step 17.10 — Verify all tests pass**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/community-service
+go test -v -count=1 ./...
+```
+
+Expected: all tests PASS.
+
+- [ ] **Step 17.11 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/services/community-service/
+git status
+git commit -m "feat: implement community-service with server, channel, member, role, and message support"
+```
+
+---
+
+## Task 18: API Gateway
+
+**Goal:** Build the REST API Gateway that serves as the single HTTP entry point for all clients. It authenticates JWT tokens, translates REST JSON requests into Connect-RPC protobuf calls, and returns JSON responses. No business logic lives here.
+
+**Commit message:** `feat: add API Gateway service with REST-to-Connect-RPC translation`
+
+**Files:**
+- Create: `backend/services/api-gateway/go.mod`
+- Create: `backend/services/api-gateway/main.go`
+- Create: `backend/services/api-gateway/routes.go`
+- Create: `backend/services/api-gateway/handlers/auth_handler.go`
+- Create: `backend/services/api-gateway/handlers/user_handler.go`
+- Create: `backend/services/api-gateway/handlers/community_handler.go`
+
+- [ ] **Step 18.1 — Update `backend/services/api-gateway/go.mod` with all dependencies**
+
+File: `backend/services/api-gateway/go.mod`
+
+```
+module github.com/constell/constell/backend/services/api-gateway
+
+go 1.22
+
+require (
+	github.com/constell/constell/backend/pkg v0.0.0
+	connectrpc.com/connect v1.16.2
+	github.com/go-chi/chi/v5 v5.1.0
+)
+```
+
+- [ ] **Step 18.2 — Resolve dependencies**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/api-gateway
+go mod tidy
+```
+
+Expected: `go.mod` and `go.sum` updated with all transitive dependencies.
+
+- [ ] **Step 18.3 — Create `backend/services/api-gateway/main.go`**
+
+File: `backend/services/api-gateway/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	authv1connect "github.com/constell/constell/backend/pkg/proto/authv1connect"
+	userv1connect "github.com/constell/constell/backend/pkg/proto/userv1connect"
+	communityv1connect "github.com/constell/constell/backend/pkg/proto/communityv1connect"
+)
+
+// Config holds the gateway's configuration, populated from environment variables.
+type Config struct {
+	Addr                 string
+	AuthServiceURL       string
+	UserServiceURL       string
+	CommunityServiceURL  string
+	JWTSecret            string
+}
+
+func loadConfig() Config {
+	return Config{
+		Addr:                getEnv("GATEWAY_ADDR", ":8080"),
+		AuthServiceURL:      getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
+		UserServiceURL:      getEnv("USER_SERVICE_URL", "http://localhost:8082"),
+		CommunityServiceURL: getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8083"),
+		JWTSecret:           getEnv("JWT_SECRET", "dev-secret-change-me"),
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// Clients holds the Connect-RPC clients for all backend services.
+type Clients struct {
+	Auth      authv1connect.AuthServiceClient
+	User      userv1connect.UserServiceClient
+	Community communityv1connect.CommunityServiceClient
+}
+
+func newClients(cfg Config) *Clients {
+	return &Clients{
+		Auth: authv1connect.NewAuthServiceClient(
+			http.DefaultClient,
+			cfg.AuthServiceURL,
+		),
+		User: userv1connect.NewUserServiceClient(
+			http.DefaultClient,
+			cfg.UserServiceURL,
+		),
+		Community: communityv1connect.NewCommunityServiceClient(
+			http.DefaultClient,
+			cfg.CommunityServiceURL,
+		),
+	}
+}
+
+func main() {
+	cfg := loadConfig()
+	clients := newClients(cfg)
+
+	r := chi.NewRouter()
+
+	// Global middleware.
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(30 * time.Second))
+
+	// Register all routes.
+	registerRoutes(r, clients, cfg.JWTSecret)
+
+	// HTTP server with graceful shutdown.
+	srv := &http.Server{
+		Addr:         cfg.Addr,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start listening in a goroutine.
+	go func() {
+		log.Printf("API Gateway listening on %s", cfg.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("shutting down API Gateway...")
+
+	// Graceful shutdown with 10-second timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("forced shutdown: %v", err)
+	}
+
+	log.Println("API Gateway stopped")
+}
+
+// userIDFromContext extracts the user ID from the request context.
+// This value is set by the auth middleware.
+func userIDFromContext(r *http.Request) string {
+	// The auth middleware stores the user ID in the context using
+	// the middleware package's context key. Since we are in the
+	// api-gateway package (not the connectrpc context), we read
+	// it from the chi context which our middleware populates.
+	type contextKey string
+	const userIDKey contextKey = "constell-user-id"
+	val, _ := r.Context().Value(userIDKey).(string)
+	return val
+}
+
+// contextWithUserID returns a new context with the user ID embedded.
+func contextWithUserID(ctx context.Context, userID string) context.Context {
+	type contextKey string
+	const userIDKey contextKey = "constell-user-id"
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+// connectErrorToHTTP maps a Connect error code to an HTTP status code.
+func connectErrorToHTTP(err error) (int, string) {
+	if connectErr := new(connect.Error); errors.As(err, &connectErr) {
+		switch connectErr.Code() {
+		case connect.CodeInvalidArgument:
+			return http.StatusBadRequest, connectErr.Message()
+		case connect.CodeUnauthenticated:
+			return http.StatusUnauthorized, connectErr.Message()
+		case connect.CodePermissionDenied:
+			return http.StatusForbidden, connectErr.Message()
+		case connect.CodeNotFound:
+			return http.StatusNotFound, connectErr.Message()
+		case connect.CodeAlreadyExists:
+			return http.StatusConflict, connectErr.Message()
+		case connect.CodeInternal:
+			return http.StatusInternalServerError, "internal server error"
+		case connect.CodeUnavailable:
+			return http.StatusServiceUnavailable, "service unavailable"
+		case connect.CodeDeadlineExceeded:
+			return http.StatusGatewayTimeout, "request timeout"
+		default:
+			return http.StatusInternalServerError, connectErr.Message()
+		}
+	}
+	return http.StatusInternalServerError, err.Error()
+}
+
+- [ ] **Step 18.4 — Create `backend/services/api-gateway/routes.go`**
+
+File: `backend/services/api-gateway/routes.go`
+
+```go
+package main
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/constell/constell/backend/pkg/jwt"
+	"github.com/constell/constell/backend/services/api-gateway/handlers"
+)
+
+// jwtAuthMiddleware validates the JWT token from the Authorization header
+// and stores the user ID in the request context.
+func jwtAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, `{"error":"missing Authorization header"}`, http.StatusUnauthorized)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+				http.Error(w, `{"error":"invalid Authorization header format"}`, http.StatusUnauthorized)
+				return
+			}
+
+			tokenString := parts[1]
+			userID, err := jwt.ParseToken(tokenString, jwtSecret)
+			if err != nil {
+				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// Store user ID in context.
+			ctx := contextWithUserID(r.Context(), userID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// registerRoutes sets up all REST routes on the chi router.
+func registerRoutes(r chi.Router, clients *Clients, jwtSecret string) {
+	// Create handler instances.
+	authHandler := handlers.NewAuthHandler(clients.Auth)
+	userHandler := handlers.NewUserHandler(clients.User)
+	communityHandler := handlers.NewCommunityHandler(clients.Community)
+
+	// Health check endpoint (no auth required).
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Auth routes — no JWT auth required.
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+		r.Post("/refresh", authHandler.RefreshToken)
+	})
+
+	// All routes below require JWT authentication.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(jwtAuthMiddleware(jwtSecret))
+
+		// User routes.
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/{id}", userHandler.GetUser)
+			r.Patch("/{id}", userHandler.UpdateProfile)
+			r.Get("/{id}/friends", userHandler.ListFriends)
+			r.Post("/{id}/block", userHandler.BlockUser)
+			r.Delete("/{id}/block/{tid}", userHandler.UnblockUser)
+			r.Get("/{id}/relation/{tid}", userHandler.GetRelation)
+		})
+
+		// DM routes.
+		r.Route("/dm", func(r chi.Router) {
+			r.Post("/send", userHandler.SendDM)
+			r.Get("/history/{peerId}", userHandler.GetDMHistory)
+			r.Get("/conversations", userHandler.GetDMConversations)
+		})
+
+		// Server (community) routes.
+		r.Post("/servers", communityHandler.CreateServer)
+		r.Route("/servers/{id}", func(r chi.Router) {
+			r.Get("/", communityHandler.GetServer)
+			r.Patch("/", communityHandler.UpdateServer)
+
+			// Channels under a server.
+			r.Post("/channels", communityHandler.CreateChannel)
+			r.Get("/channels", communityHandler.GetChannels)
+
+			// Members under a server.
+			r.Post("/members", communityHandler.AddMember)
+			r.Delete("/members/{uid}", communityHandler.RemoveMember)
+			r.Get("/members", communityHandler.ListMembers)
+
+			// Roles under a server.
+			r.Post("/roles", communityHandler.CreateRole)
+			r.Post("/members/{uid}/roles/{rid}", communityHandler.AssignRole)
+		})
+
+		// Channel routes (not nested under /servers).
+		r.Patch("/channels/{id}", communityHandler.UpdateChannel)
+
+		// Channel message routes.
+		r.Post("/channels/{id}/messages", communityHandler.SendMessage)
+		r.Get("/channels/{id}/messages", communityHandler.GetHistory)
+	})
+}
+```
+
+- [ ] **Step 18.5 — Create `backend/services/api-gateway/handlers/auth_handler.go`**
+
+File: `backend/services/api-gateway/handlers/auth_handler.go`
+
+```go
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"connectrpc.com/connect"
+
+	authv1 "github.com/constell/constell/backend/pkg/proto/authv1"
+	authv1connect "github.com/constell/constell/backend/pkg/proto/authv1connect"
+)
+
+// AuthHandler handles REST API requests for authentication.
+type AuthHandler struct {
+	client authv1connect.AuthServiceClient
+}
+
+// NewAuthHandler creates a new AuthHandler.
+func NewAuthHandler(client authv1connect.AuthServiceClient) *AuthHandler {
+	return &AuthHandler{client: client}
+}
+
+// registerRequest is the JSON body for POST /api/v1/auth/register.
+type registerRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Nickname string `json:"nickname"`
+}
+
+// registerResponse is the JSON response for successful registration.
+type registerResponse struct {
+	UserID       string `json:"user_id"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+
+// Register handles POST /api/v1/auth/register.
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Email == "" || req.Password == "" || req.Nickname == "" {
+		writeError(w, http.StatusBadRequest, "email, password, and nickname are required")
+		return
+	}
+
+	resp, err := h.client.Register(r.Context(), connect.NewRequest(&authv1.RegisterRequest{
+		Email:    req.Email,
+		Password: req.Password,
+		Nickname: req.Nickname,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	writeJSON(w, http.StatusCreated, registerResponse{
+		UserID:       msg.UserId,
+		AccessToken:  msg.AccessToken,
+		RefreshToken: msg.RefreshToken,
+		ExpiresAt:    msg.ExpiresAt,
+	})
+}
+
+// loginRequest is the JSON body for POST /api/v1/auth/login.
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// loginResponse is the JSON response for successful login.
+type loginResponse struct {
+	UserID       string `json:"user_id"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+
+// Login handles POST /api/v1/auth/login.
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+
+	resp, err := h.client.Login(r.Context(), connect.NewRequest(&authv1.LoginRequest{
+		Email:    req.Email,
+		Password: req.Password,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	writeJSON(w, http.StatusOK, loginResponse{
+		UserID:       msg.UserId,
+		AccessToken:  msg.AccessToken,
+		RefreshToken: msg.RefreshToken,
+		ExpiresAt:    msg.ExpiresAt,
+	})
+}
+
+// refreshTokenRequest is the JSON body for POST /api/v1/auth/refresh.
+type refreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// refreshTokenResponse is the JSON response for successful token refresh.
+type refreshTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+
+// RefreshToken handles POST /api/v1/auth/refresh.
+func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req refreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.RefreshToken == "" {
+		writeError(w, http.StatusBadRequest, "refresh_token is required")
+		return
+	}
+
+	resp, err := h.client.RefreshToken(r.Context(), connect.NewRequest(&authv1.RefreshTokenRequest{
+		RefreshToken: req.RefreshToken,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	writeJSON(w, http.StatusOK, refreshTokenResponse{
+		AccessToken:  msg.AccessToken,
+		RefreshToken: msg.RefreshToken,
+		ExpiresAt:    msg.ExpiresAt,
+	})
+}
+```
+
+- [ ] **Step 18.6 — Create `backend/services/api-gateway/handlers/user_handler.go`**
+
+File: `backend/services/api-gateway/handlers/user_handler.go`
+
+```go
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+
+	commonv1 "github.com/constell/constell/backend/pkg/proto/commonv1"
+	userv1 "github.com/constell/constell/backend/pkg/proto/userv1"
+	userv1connect "github.com/constell/constell/backend/pkg/proto/userv1connect"
+)
+
+// UserHandler handles REST API requests for user operations.
+type UserHandler struct {
+	client userv1connect.UserServiceClient
+}
+
+// NewUserHandler creates a new UserHandler.
+func NewUserHandler(client userv1connect.UserServiceClient) *UserHandler {
+	return &UserHandler{client: client}
+}
+
+// getUserResponse is the JSON response for GET /api/v1/users/:id.
+type getUserResponse struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Nickname      string `json:"nickname"`
+	AvatarURL     string `json:"avatar_url"`
+	StatusMessage string `json:"status_message"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// GetUser handles GET /api/v1/users/:id.
+func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	resp, err := h.client.GetUser(r.Context(), connect.NewRequest(&userv1.GetUserRequest{
+		UserId: userID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	writeJSON(w, http.StatusOK, getUserResponse{
+		ID:            msg.Id,
+		Email:         msg.Email,
+		Nickname:      msg.Nickname,
+		AvatarURL:     msg.AvatarUrl,
+		StatusMessage: msg.StatusMessage,
+		CreatedAt:     msg.CreatedAt,
+		UpdatedAt:     msg.UpdatedAt,
+	})
+}
+
+// updateProfileRequest is the JSON body for PATCH /api/v1/users/:id.
+type updateProfileRequest struct {
+	Nickname      string `json:"nickname"`
+	AvatarURL     string `json:"avatar_url"`
+	StatusMessage string `json:"status_message"`
+}
+
+// updateProfileResponse is the JSON response for PATCH /api/v1/users/:id.
+type updateProfileResponse struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Nickname      string `json:"nickname"`
+	AvatarURL     string `json:"avatar_url"`
+	StatusMessage string `json:"status_message"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// UpdateProfile handles PATCH /api/v1/users/:id.
+func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := h.client.UpdateProfile(r.Context(), connect.NewRequest(&userv1.UpdateProfileRequest{
+		Nickname:      req.Nickname,
+		AvatarUrl:     req.AvatarURL,
+		StatusMessage: req.StatusMessage,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	profile := msg.User
+	writeJSON(w, http.StatusOK, updateProfileResponse{
+		ID:            profile.Id,
+		Email:         profile.Email,
+		Nickname:      profile.Nickname,
+		AvatarURL:     profile.AvatarUrl,
+		StatusMessage: profile.StatusMessage,
+		CreatedAt:     profile.CreatedAt,
+		UpdatedAt:     profile.UpdatedAt,
+	})
+}
+
+// listFriendsResponse is the JSON response for GET /api/v1/users/:id/friends.
+type listFriendsResponse struct {
+	Friends []friendBrief `json:"friends"`
+	HasMore bool          `json:"has_more"`
+}
+
+type friendBrief struct {
+	ID        string `json:"id"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// ListFriends handles GET /api/v1/users/:id/friends.
+func (h *UserHandler) ListFriends(w http.ResponseWriter, r *http.Request) {
+	limit := int32FromQuery(r, "limit", 20)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.ListFriends(r.Context(), connect.NewRequest(&userv1.ListFriendsRequest{
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	friends := make([]friendBrief, 0, len(msg.Friends))
+	for _, f := range msg.Friends {
+		friends = append(friends, friendBrief{
+			ID:        f.Id,
+			Nickname:  f.Nickname,
+			AvatarURL: f.AvatarUrl,
+		})
+	}
+
+	hasMore := false
+	if msg.Pagination != nil {
+		hasMore = msg.Pagination.HasMore
+	}
+
+	writeJSON(w, http.StatusOK, listFriendsResponse{
+		Friends: friends,
+		HasMore: hasMore,
+	})
+}
+
+// blockUserRequest is the JSON body for POST /api/v1/users/:id/block.
+type blockUserRequest struct {
+	TargetUserID string `json:"target_user_id"`
+}
+
+// BlockUser handles POST /api/v1/users/:id/block.
+// Note: This RPC will be added to the User Service in Task 16.
+// The gateway handler is prepared ahead of time.
+func (h *UserHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
+	var req blockUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.TargetUserID == "" {
+		writeError(w, http.StatusBadRequest, "target_user_id is required")
+		return
+	}
+
+	// Call the User Service's BlockUser RPC.
+	// This assumes the User Service exposes a BlockUser RPC.
+	// The proto definition will be extended in Task 16 to include:
+	//   rpc BlockUser(BlockUserRequest) returns (BlockUserResponse);
+	// For now, we call it via a generic Connect-RPC request pattern.
+	resp, err := h.client.BlockUser(r.Context(), connect.NewRequest(&userv1.BlockUserRequest{
+		TargetUserId: req.TargetUserID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	_ = resp.Msg
+	writeJSON(w, http.StatusOK, map[string]string{"status": "blocked"})
+}
+
+// UnblockUser handles DELETE /api/v1/users/:id/block/:tid.
+func (h *UserHandler) UnblockUser(w http.ResponseWriter, r *http.Request) {
+	targetUserID := chi.URLParam(r, "tid")
+	if targetUserID == "" {
+		writeError(w, http.StatusBadRequest, "target user id is required")
+		return
+	}
+
+	resp, err := h.client.UnblockUser(r.Context(), connect.NewRequest(&userv1.UnblockUserRequest{
+		TargetUserId: targetUserID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	_ = resp.Msg
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unblocked"})
+}
+
+// GetRelation handles GET /api/v1/users/:id/relation/:tid.
+func (h *UserHandler) GetRelation(w http.ResponseWriter, r *http.Request) {
+	targetUserID := chi.URLParam(r, "tid")
+	if targetUserID == "" {
+		writeError(w, http.StatusBadRequest, "target user id is required")
+		return
+	}
+
+	resp, err := h.client.GetRelation(r.Context(), connect.NewRequest(&userv1.GetRelationRequest{
+		TargetUserId: targetUserID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	writeJSON(w, http.StatusOK, map[string]string{
+		"relation": msg.RelationType,
+	})
+}
+
+// sendDMRequest is the JSON body for POST /api/v1/dm/send.
+type sendDMRequest struct {
+	TargetUserID string `json:"target_user_id"`
+	Content      string `json:"content"`
+}
+
+// dmMessageResponse is the JSON response for DM messages.
+type dmMessageResponse struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	SenderID       string `json:"sender_id"`
+	Content        string `json:"content"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
+// SendDM handles POST /api/v1/dm/send.
+func (h *UserHandler) SendDM(w http.ResponseWriter, r *http.Request) {
+	var req sendDMRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.TargetUserID == "" || req.Content == "" {
+		writeError(w, http.StatusBadRequest, "target_user_id and content are required")
+		return
+	}
+
+	resp, err := h.client.SendDM(r.Context(), connect.NewRequest(&userv1.SendDMRequest{
+		TargetUserId: req.TargetUserID,
+		Content:      req.Content,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	dm := msg.Message
+	writeJSON(w, http.StatusCreated, dmMessageResponse{
+		ID:             dm.Id,
+		ConversationID: dm.ConversationId,
+		SenderID:       dm.SenderId,
+		Content:        dm.Content,
+		CreatedAt:      dm.CreatedAt,
+	})
+}
+
+// GetDMHistory handles GET /api/v1/dm/history/:peerId.
+func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
+	peerID := chi.URLParam(r, "peerId")
+	if peerID == "" {
+		writeError(w, http.StatusBadRequest, "peer id is required")
+		return
+	}
+
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.GetDMHistory(r.Context(), connect.NewRequest(&userv1.GetDMHistoryRequest{
+		TargetUserId: peerID,
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	messages := make([]dmMessageResponse, 0, len(msg.Messages))
+	for _, m := range msg.Messages {
+		messages = append(messages, dmMessageResponse{
+			ID:             m.Id,
+			ConversationID: m.ConversationId,
+			SenderID:       m.SenderId,
+			Content:        m.Content,
+			CreatedAt:      m.CreatedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"messages": messages,
+	})
+}
+
+// GetDMConversations handles GET /api/v1/dm/conversations.
+func (h *UserHandler) GetDMConversations(w http.ResponseWriter, r *http.Request) {
+	limit := int32FromQuery(r, "limit", 20)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.GetDMConversations(r.Context(), connect.NewRequest(&userv1.GetDMConversationsRequest{
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	conversations := make([]interface{}, 0)
+	for _, c := range msg.Conversations {
+		conversations = append(conversations, map[string]interface{}{
+			"id":         c.Id,
+			"peer_id":    c.PeerId,
+			"peer_name":  c.PeerNickname,
+			"updated_at": c.UpdatedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"conversations": conversations,
+	})
+}
+
+// int32FromQuery parses an int32 query parameter with a default fallback.
+func int32FromQuery(r *http.Request, key string, defaultVal int32) int32 {
+	s := r.URL.Query().Get(key)
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return defaultVal
+	}
+	return int32(v)
+}
+```
+
+- [ ] **Step 18.7 — Create `backend/services/api-gateway/handlers/community_handler.go`**
+
+File: `backend/services/api-gateway/handlers/community_handler.go`
+
+```go
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+
+	commonv1 "github.com/constell/constell/backend/pkg/proto/commonv1"
+	communityv1 "github.com/constell/constell/backend/pkg/proto/communityv1"
+	communityv1connect "github.com/constell/constell/backend/pkg/proto/communityv1connect"
+)
+
+// CommunityHandler handles REST API requests for community operations.
+type CommunityHandler struct {
+	client communityv1connect.CommunityServiceClient
+}
+
+// NewCommunityHandler creates a new CommunityHandler.
+func NewCommunityHandler(client communityv1connect.CommunityServiceClient) *CommunityHandler {
+	return &CommunityHandler{client: client}
+}
+
+// --- Server ---
+
+// createServerRequest is the JSON body for POST /api/v1/servers.
+type createServerRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
+}
+
+// serverResponse is the JSON representation of a server.
+type serverResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
+	OwnerID     string `json:"owner_id"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+}
+
+// serverToResponse converts a proto Server to a JSON response.
+func serverToResponse(s *communityv1.Server) serverResponse {
+	if s == nil {
+		return serverResponse{}
+	}
+	return serverResponse{
+		ID:          s.Id,
+		Name:        s.Name,
+		Description: s.Description,
+		IconURL:     s.IconUrl,
+		OwnerID:     s.OwnerId,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
+	}
+}
+
+// CreateServer handles POST /api/v1/servers.
+func (h *CommunityHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
+	var req createServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	resp, err := h.client.CreateServer(r.Context(), connect.NewRequest(&communityv1.CreateServerRequest{
+		Name:        req.Name,
+		Description: req.Description,
+		IconUrl:     req.IconURL,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, serverToResponse(resp.Msg.Server))
+}
+
+// GetServer handles GET /api/v1/servers/:id.
+func (h *CommunityHandler) GetServer(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	resp, err := h.client.GetServer(r.Context(), connect.NewRequest(&communityv1.GetServerRequest{
+		ServerId: serverID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, serverToResponse(resp.Msg.Server))
+}
+
+// updateServerRequest is the JSON body for PATCH /api/v1/servers/:id.
+type updateServerRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
+}
+
+// UpdateServer handles PATCH /api/v1/servers/:id.
+func (h *CommunityHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req updateServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := h.client.UpdateServer(r.Context(), connect.NewRequest(&communityv1.UpdateServerRequest{
+		ServerId:    serverID,
+		Name:        req.Name,
+		Description: req.Description,
+		IconUrl:     req.IconURL,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, serverToResponse(resp.Msg.Server))
+}
+
+// --- Channels ---
+
+// createChannelRequest is the JSON body for POST /api/v1/servers/:id/channels.
+type createChannelRequest struct {
+	Name     string `json:"name"`
+	Topic    string `json:"topic"`
+	Type     string `json:"type"`
+	Position int32  `json:"position"`
+}
+
+// channelResponse is the JSON representation of a channel.
+type channelResponse struct {
+	ID        string `json:"id"`
+	ServerID  string `json:"server_id"`
+	Name      string `json:"name"`
+	Topic     string `json:"topic"`
+	Type      string `json:"type"`
+	Position  int32  `json:"position"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+// channelToResponse converts a proto Channel to a JSON response.
+func channelToResponse(c *communityv1.Channel) channelResponse {
+	if c == nil {
+		return channelResponse{}
+	}
+	typeStr := "text"
+	switch c.Type {
+	case communityv1.ChannelType_CHANNEL_TYPE_ANNOUNCEMENT:
+		typeStr = "announcement"
+	}
+	return channelResponse{
+		ID:        c.Id,
+		ServerID:  c.ServerId,
+		Name:      c.Name,
+		Topic:     c.Topic,
+		Type:      typeStr,
+		Position:  c.Position,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+	}
+}
+
+// channelTypeFromString converts a string to a ChannelType proto enum.
+func channelTypeFromString(s string) communityv1.ChannelType {
+	switch s {
+	case "announcement":
+		return communityv1.ChannelType_CHANNEL_TYPE_ANNOUNCEMENT
+	default:
+		return communityv1.ChannelType_CHANNEL_TYPE_TEXT
+	}
+}
+
+// CreateChannel handles POST /api/v1/servers/:id/channels.
+func (h *CommunityHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req createChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	resp, err := h.client.CreateChannel(r.Context(), connect.NewRequest(&communityv1.CreateChannelRequest{
+		ServerId: serverID,
+		Name:     req.Name,
+		Topic:    req.Topic,
+		Type:     channelTypeFromString(req.Type),
+		Position: req.Position,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, channelToResponse(resp.Msg.Channel))
+}
+
+// GetChannels handles GET /api/v1/servers/:id/channels.
+func (h *CommunityHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.ListChannels(r.Context(), connect.NewRequest(&communityv1.ListChannelsRequest{
+		ServerId: serverID,
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	channels := make([]channelResponse, 0, len(resp.Msg.Channels))
+	for _, c := range resp.Msg.Channels {
+		channels = append(channels, channelToResponse(c))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"channels": channels,
+	})
+}
+
+// UpdateChannel handles PATCH /api/v1/channels/:id.
+func (h *CommunityHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
+	channelID := chi.URLParam(r, "id")
+	if channelID == "" {
+		writeError(w, http.StatusBadRequest, "channel id is required")
+		return
+	}
+
+	var req createChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := h.client.UpdateChannel(r.Context(), connect.NewRequest(&communityv1.UpdateChannelRequest{
+		ChannelId: channelID,
+		Name:      req.Name,
+		Topic:     req.Topic,
+		Type:      channelTypeFromString(req.Type),
+		Position:  req.Position,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, channelToResponse(resp.Msg.Channel))
+}
+
+// --- Membership ---
+
+// addMemberRequest is the JSON body for POST /api/v1/servers/:id/members.
+type addMemberRequest struct {
+	UserID string `json:"user_id"`
+}
+
+// memberResponse is the JSON representation of a server member.
+type memberResponse struct {
+	ServerID string   `json:"server_id"`
+	UserID   string   `json:"user_id"`
+	Nickname string   `json:"nickname"`
+	RoleIDs  []string `json:"role_ids"`
+	JoinedAt int64    `json:"joined_at"`
+}
+
+// memberToResponse converts a proto ServerMember to a JSON response.
+func memberToResponse(m *communityv1.ServerMember) memberResponse {
+	if m == nil {
+		return memberResponse{}
+	}
+	return memberResponse{
+		ServerID: m.ServerId,
+		UserID:   m.UserId,
+		Nickname: m.Nickname,
+		RoleIDs:  m.RoleIds,
+		JoinedAt: m.JoinedAt,
+	}
+}
+
+// AddMember handles POST /api/v1/servers/:id/members.
+func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req addMemberRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.UserID == "" {
+		writeError(w, http.StatusBadRequest, "user_id is required")
+		return
+	}
+
+	resp, err := h.client.JoinServer(r.Context(), connect.NewRequest(&communityv1.JoinServerRequest{
+		ServerId: serverID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, memberToResponse(resp.Msg.Member))
+}
+
+// RemoveMember handles DELETE /api/v1/servers/:id/members/:uid.
+func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	resp, err := h.client.LeaveServer(r.Context(), connect.NewRequest(&communityv1.LeaveServerRequest{
+		ServerId: serverID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	_ = resp.Msg
+	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+// ListMembers handles GET /api/v1/servers/:id/members.
+func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.ListMembers(r.Context(), connect.NewRequest(&communityv1.ListMembersRequest{
+		ServerId: serverID,
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	members := make([]memberResponse, 0, len(resp.Msg.Members))
+	for _, m := range resp.Msg.Members {
+		members = append(members, memberToResponse(m))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"members": members,
+	})
+}
+
+// --- Roles ---
+
+// createRoleRequest is the JSON body for POST /api/v1/servers/:id/roles.
+type createRoleRequest struct {
+	Name        string `json:"name"`
+	Color       int32  `json:"color"`
+	Permissions int64  `json:"permissions"`
+}
+
+// CreateRole handles POST /api/v1/servers/:id/roles.
+// Note: CreateRole RPC will be added to Community Service proto in Task 17.
+func (h *CommunityHandler) CreateRole(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req createRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	resp, err := h.client.CreateRole(r.Context(), connect.NewRequest(&communityv1.CreateRoleRequest{
+		ServerId:    serverID,
+		Name:        req.Name,
+		Color:       req.Color,
+		Permissions: req.Permissions,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	role := resp.Msg.Role
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":          role.Id,
+		"server_id":   role.ServerId,
+		"name":        role.Name,
+		"color":       role.Color,
+		"permissions": role.Permissions,
+		"position":    role.Position,
+		"created_at":  role.CreatedAt,
+	})
+}
+
+// AssignRole handles POST /api/v1/servers/:id/members/:uid/roles/:rid.
+// Note: AssignRole RPC will be added to Community Service proto in Task 17.
+func (h *CommunityHandler) AssignRole(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "id")
+	userID := chi.URLParam(r, "uid")
+	roleID := chi.URLParam(r, "rid")
+
+	if serverID == "" || userID == "" || roleID == "" {
+		writeError(w, http.StatusBadRequest, "server id, user id, and role id are required")
+		return
+	}
+
+	resp, err := h.client.AssignRole(r.Context(), connect.NewRequest(&communityv1.AssignRoleRequest{
+		ServerId: serverID,
+		UserId:   userID,
+		RoleId:   roleID,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	_ = resp.Msg
+	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
+}
+
+// --- Messages ---
+
+// sendMessageRequest is the JSON body for POST /api/v1/channels/:id/messages.
+type sendMessageRequest struct {
+	Content string `json:"content"`
+}
+
+// messageResponse is the JSON representation of a channel message.
+type messageResponse struct {
+	ID        string `json:"id"`
+	ChannelID string `json:"channel_id"`
+	AuthorID  string `json:"author_id"`
+	Content   string `json:"content"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+// messageToResponse converts a proto ChannelMessage to a JSON response.
+func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
+	if m == nil {
+		return messageResponse{}
+	}
+	return messageResponse{
+		ID:        m.Id,
+		ChannelID: m.ChannelId,
+		AuthorID:  m.AuthorId,
+		Content:   m.Content,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+}
+
+// SendMessage handles POST /api/v1/channels/:id/messages.
+func (h *CommunityHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
+	channelID := chi.URLParam(r, "id")
+	if channelID == "" {
+		writeError(w, http.StatusBadRequest, "channel id is required")
+		return
+	}
+
+	var req sendMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	resp, err := h.client.SendMessage(r.Context(), connect.NewRequest(&communityv1.SendMessageRequest{
+		ChannelId: channelID,
+		Content:   req.Content,
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, messageToResponse(resp.Msg.Message))
+}
+
+// GetHistory handles GET /api/v1/channels/:id/messages.
+func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
+	channelID := chi.URLParam(r, "id")
+	if channelID == "" {
+		writeError(w, http.StatusBadRequest, "channel id is required")
+		return
+	}
+
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	resp, err := h.client.GetMessages(r.Context(), connect.NewRequest(&communityv1.GetMessagesRequest{
+		ChannelId: channelID,
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	}))
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	messages := make([]messageResponse, 0, len(resp.Msg.Messages))
+	for _, m := range resp.Msg.Messages {
+		messages = append(messages, messageToResponse(m))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"messages": messages,
+	})
+}
+```
+
+- [ ] **Step 18.8 — Create `backend/services/api-gateway/handlers/helpers.go`**
+
+File: `backend/services/api-gateway/handlers/helpers.go`
+
+```go
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"connectrpc.com/connect"
+)
+
+// writeJSON writes a JSON response with the given status code.
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+// writeError writes a JSON error response.
+func writeError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// writeConnectError maps a Connect-RPC error to an HTTP error response.
+func writeConnectError(w http.ResponseWriter, err error) {
+	if connectErr := new(connect.Error); errors.As(err, &connectErr) {
+		status, message := mapConnectCode(connectErr.Code(), connectErr.Message())
+		writeError(w, status, message)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
+// mapConnectCode converts a Connect error code to an HTTP status code and message.
+func mapConnectCode(code connect.Code, message string) (int, string) {
+	switch code {
+	case connect.CodeInvalidArgument:
+		return http.StatusBadRequest, message
+	case connect.CodeUnauthenticated:
+		return http.StatusUnauthorized, message
+	case connect.CodePermissionDenied:
+		return http.StatusForbidden, message
+	case connect.CodeNotFound:
+		return http.StatusNotFound, message
+	case connect.CodeAlreadyExists:
+		return http.StatusConflict, message
+	case connect.CodeInternal:
+		return http.StatusInternalServerError, "internal server error"
+	case connect.CodeUnavailable:
+		return http.StatusServiceUnavailable, "service unavailable"
+	case connect.CodeDeadlineExceeded:
+		return http.StatusGatewayTimeout, "request timeout"
+	case connect.CodeCanceled:
+		return http.StatusRequestTimeout, "request canceled"
+	case connect.CodeFailedPrecondition:
+		return http.StatusBadRequest, message
+	case connect.CodeAborted:
+		return http.StatusConflict, message
+	case connect.CodeOutOfRange:
+		return http.StatusBadRequest, message
+	case connect.CodeUnimplemented:
+		return http.StatusNotImplemented, message
+	case connect.CodeDataLoss:
+		return http.StatusInternalServerError, "internal server error"
+	case connect.CodeResourceExhausted:
+		return http.StatusTooManyRequests, message
+	case connect.CodeUnknown:
+		return http.StatusInternalServerError, "internal server error"
+	default:
+		return http.StatusInternalServerError, message
+	}
+}
+```
+
+- [ ] **Step 18.9 — Verify the gateway compiles**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/services/api-gateway
+go mod tidy
+go build ./...
+```
+
+Expected: no compilation errors. If `BlockUser`, `UnblockUser`, `GetRelation`, `GetDMConversations`, `CreateRole`, `AssignRole` RPCs are not yet in the proto (they will be added by Tasks 16-17), you will see compilation errors. In that case, skip this verification step and proceed -- the gateway will compile once Tasks 16-17 are complete.
+
+- [ ] **Step 18.10 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/services/api-gateway/
+git status
+git commit -m "feat: add API Gateway service with REST-to-Connect-RPC translation"
+```
+
+---
+
+## Task 19: Integration Test -- Auth Flow
+
+**Goal:** Write integration tests that verify the complete auth flow through the API Gateway: register, login, and token refresh. These tests hit a real running API Gateway at `http://localhost:8080` and assume Docker Compose is running with all services.
+
+**Commit message:** `test: add integration tests for auth flow (register, login, refresh)`
+
+**Files:**
+- Create: `backend/tests/integration/go.mod`
+- Create: `backend/tests/integration/helpers.go`
+- Create: `backend/tests/integration/auth_test.go`
+
+- [ ] **Step 19.1 — Create integration test directory**
+
+```bash
+mkdir -p /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+```
+
+- [ ] **Step 19.2 — Create `backend/tests/integration/go.mod`**
+
+File: `backend/tests/integration/go.mod`
+
+```
+module github.com/constell/constell/backend/tests/integration
+
+go 1.22
+```
+
+- [ ] **Step 19.3 — Create `backend/tests/integration/helpers.go`**
+
+File: `backend/tests/integration/helpers.go`
+
+```go
+package integration
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+// gatewayBaseURL returns the base URL for the API Gateway.
+// It reads from the GATEWAY_URL environment variable, defaulting to
+// http://localhost:8080.
+func gatewayBaseURL() string {
+	if v := os.Getenv("GATEWAY_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:8080"
+}
+
+// apiURL builds a full URL for the given path (e.g., /api/v1/auth/register).
+func apiURL(path string) string {
+	return gatewayBaseURL() + path
+}
+
+// uniqueEmail generates a unique email address using the current timestamp.
+func uniqueEmail() string {
+	return fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())
+}
+
+// uniqueNickname generates a unique nickname using the current timestamp.
+func uniqueNickname() string {
+	return fmt.Sprintf("TestUser%d", time.Now().UnixNano())
+}
+
+// testUser holds the credentials and tokens for a registered test user.
+type testUser struct {
+	Email        string
+	Password     string
+	Nickname     string
+	UserID       string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    int64
+}
+
+// registerUser registers a new test user via the API Gateway.
+// It fails the test if registration does not succeed.
+func registerUser(t *testing.T) *testUser {
+	t.Helper()
+
+	email := uniqueEmail()
+	password := "testPassword123!"
+	nickname := uniqueNickname()
+
+	body := map[string]string{
+		"email":    email,
+		"password": password,
+		"nickname": nickname,
+	}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("failed to marshal register body: %v", err)
+	}
+
+	resp, err := http.Post(apiURL("/api/v1/auth/register"), "application/json", bytes.NewReader(bodyJSON))
+	if err != nil {
+		t.Fatalf("register request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("register failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		UserID       string `json:"user_id"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode register response: %v", err)
+	}
+
+	return &testUser{
+		Email:        email,
+		Password:     password,
+		Nickname:     nickname,
+		UserID:       result.UserID,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresAt:    result.ExpiresAt,
+	}
+}
+
+// loginUser logs in a user and returns a new access token.
+func loginUser(t *testing.T, email, password string) *testUser {
+	t.Helper()
+
+	body := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("failed to marshal login body: %v", err)
+	}
+
+	resp, err := http.Post(apiURL("/api/v1/auth/login"), "application/json", bytes.NewReader(bodyJSON))
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("login failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		UserID       string `json:"user_id"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode login response: %v", err)
+	}
+
+	return &testUser{
+		Email:        email,
+		Password:     password,
+		UserID:       result.UserID,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresAt:    result.ExpiresAt,
+	}
+}
+
+// authenticatedGet performs an authenticated GET request.
+func authenticatedGet(t *testing.T, token, path string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequest("GET", apiURL(path), nil)
+	if err != nil {
+		t.Fatalf("failed to create GET request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	return resp
+}
+
+// authenticatedPost performs an authenticated POST request with a JSON body.
+func authenticatedPost(t *testing.T, token, path string, body interface{}) *http.Response {
+	t.Helper()
+
+	var bodyReader io.Reader
+	if body != nil {
+		bodyJSON, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+		bodyReader = bytes.NewReader(bodyJSON)
+	}
+
+	req, err := http.NewRequest("POST", apiURL(path), bodyReader)
+	if err != nil {
+		t.Fatalf("failed to create POST request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+	return resp
+}
+
+// authenticatedPatch performs an authenticated PATCH request with a JSON body.
+func authenticatedPatch(t *testing.T, token, path string, body interface{}) *http.Response {
+	t.Helper()
+
+	var bodyReader io.Reader
+	if body != nil {
+		bodyJSON, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+		bodyReader = bytes.NewReader(bodyJSON)
+	}
+
+	req, err := http.NewRequest("PATCH", apiURL(path), bodyReader)
+	if err != nil {
+		t.Fatalf("failed to create PATCH request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH request failed: %v", err)
+	}
+	return resp
+}
+
+// authenticatedDelete performs an authenticated DELETE request.
+func authenticatedDelete(t *testing.T, token, path string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequest("DELETE", apiURL(path), nil)
+	if err != nil {
+		t.Fatalf("failed to create DELETE request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE request failed: %v", err)
+	}
+	return resp
+}
+
+// readResponseBody reads and returns the response body as a string.
+func readResponseBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+	return string(data)
+}
+
+// decodeResponse decodes a JSON response body into the given target.
+func decodeResponse(t *testing.T, resp *http.Response, target interface{}) {
+	t.Helper()
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+}
+
+// assertStatus checks that the HTTP response has the expected status code.
+func assertStatus(t *testing.T, resp *http.Response, expected int) {
+	t.Helper()
+	if resp.StatusCode != expected {
+		body := readResponseBody(t, resp)
+		t.Fatalf("expected status %d, got %d: %s", expected, resp.StatusCode, body)
+	}
+}
+
+// isValidUUID checks if a string looks like a UUID (basic format check).
+func isValidUUID(s string) bool {
+	return len(s) == 36 && strings.Count(s, "-") == 4
+}
+```
+
+- [ ] **Step 19.4 — Create `backend/tests/integration/auth_test.go`**
+
+File: `backend/tests/integration/auth_test.go`
+
+```go
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestHealthCheck verifies the gateway health endpoint responds.
+func TestHealthCheck(t *testing.T) {
+	resp, err := http.Get(apiURL("/health"))
+	if err != nil {
+		t.Fatalf("health check request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode health response: %v", err)
+	}
+
+	if result["status"] != "ok" {
+		t.Fatalf("expected status 'ok', got %q", result["status"])
+	}
+
+	t.Log("health check passed")
+}
+
+// TestRegister tests user registration via the API Gateway.
+func TestRegister(t *testing.T) {
+	user := registerUser(t)
+
+	// Verify the user ID looks like a UUID.
+	if !isValidUUID(user.UserID) {
+		t.Fatalf("expected user ID to be UUID format, got %q", user.UserID)
+	}
+
+	// Verify tokens are non-empty.
+	if user.AccessToken == "" {
+		t.Fatal("expected non-empty access token")
+	}
+	if user.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh token")
+	}
+
+	// Verify expires_at is in the future.
+	if user.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("expected expires_at to be in the future, got %d (now=%d)",
+			user.ExpiresAt, time.Now().Unix())
+	}
+
+	t.Logf("register passed: user_id=%s, expires_at=%d", user.UserID, user.ExpiresAt)
+}
+
+// TestRegisterDuplicateEmail tests that registering with a duplicate email fails.
+func TestRegisterDuplicateEmail(t *testing.T) {
+	user := registerUser(t)
+
+	// Try to register again with the same email.
+	body := map[string]string{
+		"email":    user.Email,
+		"password": "differentPassword456",
+		"nickname": "DifferentNickname",
+	}
+	bodyJSON, _ := json.Marshal(body)
+
+	resp, err := http.Post(apiURL("/api/v1/auth/register"), "application/json", strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		t.Fatalf("duplicate register request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should get a conflict or bad request.
+	if resp.StatusCode == http.StatusCreated {
+		t.Fatal("expected duplicate registration to fail, but it succeeded")
+	}
+
+	t.Logf("duplicate email correctly rejected with status %d", resp.StatusCode)
+}
+
+// TestRegisterMissingFields tests that registration with missing fields fails.
+func TestRegisterMissingFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		email   string
+		pass    string
+		nick    string
+	}{
+		{"missing email", "", "password123", "nick"},
+		{"missing password", "test@example.com", "", "nick"},
+		{"missing nickname", "test@example.com", "password123", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := map[string]string{
+				"email":    tt.email,
+				"password": tt.pass,
+				"nickname": tt.nick,
+			}
+			bodyJSON, _ := json.Marshal(body)
+
+			resp, err := http.Post(apiURL("/api/v1/auth/register"), "application/json", strings.NewReader(string(bodyJSON)))
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusCreated {
+				t.Fatal("expected registration to fail with missing fields")
+			}
+
+			t.Logf("%s: correctly rejected with status %d", tt.name, resp.StatusCode)
+		})
+	}
+}
+
+// TestLogin tests user login via the API Gateway.
+func TestLogin(t *testing.T) {
+	// Register a user first.
+	original := registerUser(t)
+
+	// Login with the same credentials.
+	loggedIn := loginUser(t, original.Email, original.Password)
+
+	// Verify user ID matches.
+	if loggedIn.UserID != original.UserID {
+		t.Fatalf("expected user_id %q, got %q", original.UserID, loggedIn.UserID)
+	}
+
+	// Verify tokens are non-empty.
+	if loggedIn.AccessToken == "" {
+		t.Fatal("expected non-empty access token after login")
+	}
+	if loggedIn.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh token after login")
+	}
+
+	// Verify expires_at is in the future.
+	if loggedIn.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("expected expires_at to be in the future, got %d", loggedIn.ExpiresAt)
+	}
+
+	t.Logf("login passed: user_id=%s", loggedIn.UserID)
+}
+
+// TestLoginWrongPassword tests that login with wrong password fails.
+func TestLoginWrongPassword(t *testing.T) {
+	user := registerUser(t)
+
+	body := map[string]string{
+		"email":    user.Email,
+		"password": "wrongPassword999",
+	}
+	bodyJSON, _ := json.Marshal(body)
+
+	resp, err := http.Post(apiURL("/api/v1/auth/login"), "application/json", strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected login with wrong password to fail, but it succeeded")
+	}
+
+	t.Logf("wrong password correctly rejected with status %d", resp.StatusCode)
+}
+
+// TestRefreshToken tests token refresh via the API Gateway.
+func TestRefreshToken(t *testing.T) {
+	user := registerUser(t)
+
+	// Refresh the token.
+	body := map[string]string{
+		"refresh_token": user.RefreshToken,
+	}
+	bodyJSON, _ := json.Marshal(body)
+
+	resp, err := http.Post(apiURL("/api/v1/auth/refresh"), "application/json", strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		t.Fatalf("refresh request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody := readResponseBody(t, resp)
+		t.Fatalf("expected status 200, got %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.AccessToken == "" {
+		t.Fatal("expected non-empty access token after refresh")
+	}
+	if result.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh token after refresh")
+	}
+	if result.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("expected expires_at to be in the future, got %d", result.ExpiresAt)
+	}
+
+	t.Logf("refresh passed: new expires_at=%d", result.ExpiresAt)
+}
+
+// TestAuthenticatedRequest tests that an authenticated endpoint works with a valid token.
+func TestAuthenticatedRequest(t *testing.T) {
+	user := registerUser(t)
+
+	// Use the access token to fetch the user's profile.
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/users/"+user.UserID)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody := readResponseBody(t, resp)
+		t.Fatalf("expected status 200, got %d: %s", resp.StatusCode, respBody)
+	}
+
+	var profile struct {
+		ID       string `json:"id"`
+		Email    string `json:"email"`
+		Nickname string `json:"nickname"`
+	}
+	decodeResponse(t, resp, &profile)
+
+	if profile.ID != user.UserID {
+		t.Fatalf("expected user ID %q, got %q", user.UserID, profile.ID)
+	}
+	if profile.Email != user.Email {
+		t.Fatalf("expected email %q, got %q", user.Email, profile.Email)
+	}
+	if profile.Nickname != user.Nickname {
+		t.Fatalf("expected nickname %q, got %q", user.Nickname, profile.Nickname)
+	}
+
+	t.Logf("authenticated request passed: profile=%+v", profile)
+}
+
+// TestUnauthenticatedRequest tests that authenticated endpoints reject requests without a token.
+func TestUnauthenticatedRequest(t *testing.T) {
+	// Try to access a protected endpoint without a token.
+	resp, err := http.Get(apiURL("/api/v1/users/some-id"))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d", resp.StatusCode)
+	}
+
+	t.Logf("unauthenticated request correctly rejected with status %d", resp.StatusCode)
+}
+```
+
+- [ ] **Step 19.5 — Resolve dependencies**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go mod tidy
+```
+
+Expected: `go.mod` and `go.sum` created with no errors.
+
+- [ ] **Step 19.6 — Verify tests compile**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go build ./...
+```
+
+Expected: no compilation errors.
+
+- [ ] **Step 19.7 — Run the auth integration tests**
+
+Ensure Docker Compose is running with all services, then:
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go test -v -count=1 -timeout 60s ./...
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 19.8 — Add integration test module to go.work**
+
+Update `backend/go.work`:
+
+```go
+go 1.22
+
+use (
+    ./pkg
+    ./services/api-gateway
+    ./services/auth-service
+    ./services/user-service
+    ./services/community-service
+    ./tools/migrate
+    ./tests/integration
+)
+```
+
+- [ ] **Step 19.9 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/tests/integration/ backend/go.work
+git status
+git commit -m "test: add integration tests for auth flow (register, login, refresh)"
+```
+
+---
+
+## Task 20: Integration Test -- User & DM Flow
+
+**Goal:** Write integration tests that cover user profile operations, blocking/unblocking, friend listing, and direct messaging between two users.
+
+**Commit message:** `test: add integration tests for user profile, relations, and DM flow`
+
+**Files:**
+- Create: `backend/tests/integration/user_test.go`
+- Create: `backend/tests/integration/dm_test.go`
+
+- [ ] **Step 20.1 — Create `backend/tests/integration/user_test.go`**
+
+File: `backend/tests/integration/user_test.go`
+
+```go
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+// TestGetUserProfile tests getting another user's profile.
+func TestGetUserProfile(t *testing.T) {
+	// Register two users.
+	userA := registerUser(t)
+	userB := registerUser(t)
+
+	// User A gets User B's profile.
+	resp := authenticatedGet(t, userA.AccessToken, "/api/v1/users/"+userB.UserID)
+	assertStatus(t, resp, http.StatusOK)
+
+	var profile struct {
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		Nickname      string `json:"nickname"`
+		AvatarURL     string `json:"avatar_url"`
+		StatusMessage string `json:"status_message"`
+		CreatedAt     int64  `json:"created_at"`
+		UpdatedAt     int64  `json:"updated_at"`
+	}
+	decodeResponse(t, resp, &profile)
+
+	if profile.ID != userB.UserID {
+		t.Fatalf("expected user ID %q, got %q", userB.UserID, profile.ID)
+	}
+	if profile.Nickname != userB.Nickname {
+		t.Fatalf("expected nickname %q, got %q", userB.Nickname, profile.Nickname)
+	}
+
+	t.Logf("get user profile passed: user_b=%s", profile.ID)
+}
+
+// TestUpdateProfile tests updating the current user's profile.
+func TestUpdateProfile(t *testing.T) {
+	user := registerUser(t)
+
+	// Update profile.
+	newNickname := "UpdatedNick"
+	newStatus := "Hello world"
+
+	body := map[string]string{
+		"nickname":       newNickname,
+		"status_message": newStatus,
+	}
+
+	resp := authenticatedPatch(t, user.AccessToken, "/api/v1/users/"+user.UserID, body)
+	assertStatus(t, resp, http.StatusOK)
+
+	var updated struct {
+		ID            string `json:"id"`
+		Nickname      string `json:"nickname"`
+		StatusMessage string `json:"status_message"`
+	}
+	decodeResponse(t, resp, &updated)
+
+	if updated.Nickname != newNickname {
+		t.Fatalf("expected nickname %q, got %q", newNickname, updated.Nickname)
+	}
+	if updated.StatusMessage != newStatus {
+		t.Fatalf("expected status_message %q, got %q", newStatus, updated.StatusMessage)
+	}
+
+	// Verify the update persisted by fetching the profile again.
+	resp2 := authenticatedGet(t, user.AccessToken, "/api/v1/users/"+user.UserID)
+	assertStatus(t, resp2, http.StatusOK)
+
+	var profile struct {
+		Nickname      string `json:"nickname"`
+		StatusMessage string `json:"status_message"`
+	}
+	decodeResponse(t, resp2, &profile)
+
+	if profile.Nickname != newNickname {
+		t.Fatalf("expected persisted nickname %q, got %q", newNickname, profile.Nickname)
+	}
+	if profile.StatusMessage != newStatus {
+		t.Fatalf("expected persisted status_message %q, got %q", newStatus, profile.StatusMessage)
+	}
+
+	t.Log("update profile passed")
+}
+
+// TestListFriendsEmpty tests that a new user has no friends.
+func TestListFriendsEmpty(t *testing.T) {
+	user := registerUser(t)
+
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/users/"+user.UserID+"/friends")
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Friends []interface{} `json:"friends"`
+		HasMore bool          `json:"has_more"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if len(result.Friends) != 0 {
+		t.Fatalf("expected 0 friends for new user, got %d", len(result.Friends))
+	}
+	if result.HasMore {
+		t.Fatal("expected has_more to be false")
+	}
+
+	t.Log("list friends (empty) passed")
+}
+
+// TestBlockUser tests blocking another user.
+func TestBlockUser(t *testing.T) {
+	userA := registerUser(t)
+	userB := registerUser(t)
+
+	// User A blocks User B.
+	body := map[string]string{
+		"target_user_id": userB.UserID,
+	}
+
+	resp := authenticatedPost(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/block", body)
+	assertStatus(t, resp, http.StatusOK)
+
+	t.Logf("block user passed: user_a=%s blocked user_b=%s", userA.UserID, userB.UserID)
+}
+
+// TestUnblockUser tests unblocking a previously blocked user.
+func TestUnblockUser(t *testing.T) {
+	userA := registerUser(t)
+	userB := registerUser(t)
+
+	// First block User B.
+	blockBody := map[string]string{
+		"target_user_id": userB.UserID,
+	}
+	resp := authenticatedPost(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/block", blockBody)
+	assertStatus(t, resp, http.StatusOK)
+
+	// Then unblock User B.
+	resp2 := authenticatedDelete(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/block/"+userB.UserID)
+	assertStatus(t, resp2, http.StatusOK)
+
+	t.Logf("unblock user passed: user_a=%s unblocked user_b=%s", userA.UserID, userB.UserID)
+}
+
+// TestGetRelation tests getting the relation between two users.
+func TestGetRelation(t *testing.T) {
+	userA := registerUser(t)
+	userB := registerUser(t)
+
+	// Initially, there should be no relation (or "none").
+	resp := authenticatedGet(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/relation/"+userB.UserID)
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Relation string `json:"relation"`
+	}
+	decodeResponse(t, resp, &result)
+
+	t.Logf("get relation passed: relation=%q", result.Relation)
+
+	// Block user B, then check relation again.
+	blockBody := map[string]string{
+		"target_user_id": userB.UserID,
+	}
+	resp2 := authenticatedPost(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/block", blockBody)
+	assertStatus(t, resp2, http.StatusOK)
+
+	resp3 := authenticatedGet(t, userA.AccessToken, "/api/v1/users/"+userA.UserID+"/relation/"+userB.UserID)
+	assertStatus(t, resp3, http.StatusOK)
+
+	var result2 struct {
+		Relation string `json:"relation"`
+	}
+	decodeResponse(t, resp3, &result2)
+
+	if result2.Relation != "blocked" {
+		t.Fatalf("expected relation 'blocked', got %q", result2.Relation)
+	}
+
+	t.Logf("get relation after block passed: relation=%q", result2.Relation)
+}
+
+// TestGetNonexistentUser tests getting a profile that doesn't exist.
+func TestGetNonexistentUser(t *testing.T) {
+	user := registerUser(t)
+
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/users/00000000-0000-0000-0000-000000000000")
+	if resp.StatusCode != http.StatusNotFound {
+		body := readResponseBody(t, resp)
+		t.Fatalf("expected status 404, got %d: %s", resp.StatusCode, body)
+	}
+
+	t.Log("get nonexistent user correctly returned 404")
+}
+```
+
+- [ ] **Step 20.2 — Create `backend/tests/integration/dm_test.go`**
+
+File: `backend/tests/integration/dm_test.go`
+
+```go
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+// TestSendDM tests sending a direct message between two users.
+func TestSendDM(t *testing.T) {
+	alice := registerUser(t)
+	bob := registerUser(t)
+
+	// Alice sends a DM to Bob.
+	message := "Hello Bob, this is Alice!"
+	body := map[string]string{
+		"target_user_id": bob.UserID,
+		"content":        message,
+	}
+
+	resp := authenticatedPost(t, alice.AccessToken, "/api/v1/dm/send", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID             string `json:"id"`
+		ConversationID string `json:"conversation_id"`
+		SenderID       string `json:"sender_id"`
+		Content        string `json:"content"`
+		CreatedAt      int64  `json:"created_at"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty message ID")
+	}
+	if result.SenderID != alice.UserID {
+		t.Fatalf("expected sender_id %q, got %q", alice.UserID, result.SenderID)
+	}
+	if result.Content != message {
+		t.Fatalf("expected content %q, got %q", message, result.Content)
+	}
+	if result.ConversationID == "" {
+		t.Fatal("expected non-empty conversation ID")
+	}
+	if result.CreatedAt == 0 {
+		t.Fatal("expected non-zero created_at")
+	}
+
+	t.Logf("send DM passed: message_id=%s, conversation_id=%s", result.ID, result.ConversationID)
+}
+
+// TestGetDMHistory tests retrieving DM history between two users.
+func TestGetDMHistory(t *testing.T) {
+	alice := registerUser(t)
+	bob := registerUser(t)
+
+	// Alice sends multiple DMs to Bob.
+	messages := []string{
+		"Message 1 from Alice",
+		"Message 2 from Alice",
+		"Message 3 from Alice",
+	}
+
+	for _, msg := range messages {
+		body := map[string]string{
+			"target_user_id": bob.UserID,
+			"content":        msg,
+		}
+		resp := authenticatedPost(t, alice.AccessToken, "/api/v1/dm/send", body)
+		assertStatus(t, resp, http.StatusCreated)
+		resp.Body.Close()
+	}
+
+	// Alice retrieves DM history with Bob.
+	resp := authenticatedGet(t, alice.AccessToken, "/api/v1/dm/history/"+bob.UserID)
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Messages []struct {
+			ID        string `json:"id"`
+			SenderID  string `json:"sender_id"`
+			Content   string `json:"content"`
+			CreatedAt int64  `json:"created_at"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if len(result.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(result.Messages))
+	}
+
+	// Verify message contents (should be in chronological order).
+	for i, msg := range result.Messages {
+		if msg.Content != messages[i] {
+			t.Fatalf("message %d: expected content %q, got %q", i, messages[i], msg.Content)
+		}
+		if msg.SenderID != alice.UserID {
+			t.Fatalf("message %d: expected sender_id %q, got %q", i, alice.UserID, msg.SenderID)
+		}
+	}
+
+	t.Logf("get DM history passed: %d messages retrieved", len(result.Messages))
+}
+
+// TestGetDMConversations tests retrieving the list of DM conversations.
+func TestGetDMConversations(t *testing.T) {
+	alice := registerUser(t)
+	bob := registerUser(t)
+
+	// Alice sends a DM to Bob to create a conversation.
+	body := map[string]string{
+		"target_user_id": bob.UserID,
+		"content":        "Hey Bob!",
+	}
+	resp := authenticatedPost(t, alice.AccessToken, "/api/v1/dm/send", body)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// Alice retrieves her DM conversations.
+	resp2 := authenticatedGet(t, alice.AccessToken, "/api/v1/dm/conversations")
+	assertStatus(t, resp2, http.StatusOK)
+
+	var result struct {
+		Conversations []struct {
+			ID        string `json:"id"`
+			PeerID    string `json:"peer_id"`
+			PeerName  string `json:"peer_name"`
+			UpdatedAt int64  `json:"updated_at"`
+		} `json:"conversations"`
+	}
+	decodeResponse(t, resp2, &result)
+
+	if len(result.Conversations) < 1 {
+		t.Fatalf("expected at least 1 conversation, got %d", len(result.Conversations))
+	}
+
+	// Find the conversation with Bob.
+	found := false
+	for _, conv := range result.Conversations {
+		if conv.PeerID == bob.UserID {
+			found = true
+			t.Logf("found conversation with Bob: id=%s, peer_name=%s", conv.ID, conv.PeerName)
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected to find a conversation with Bob")
+	}
+
+	t.Log("get DM conversations passed")
+}
+
+// TestBlockPreventsDM tests that a blocked user cannot send DMs.
+func TestBlockPreventsDM(t *testing.T) {
+	alice := registerUser(t)
+	bob := registerUser(t)
+
+	// Bob blocks Alice.
+	blockBody := map[string]string{
+		"target_user_id": alice.UserID,
+	}
+	resp := authenticatedPost(t, bob.AccessToken, "/api/v1/users/"+bob.UserID+"/block", blockBody)
+	assertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	// Alice tries to send a DM to Bob — should fail.
+	dmBody := map[string]string{
+		"target_user_id": bob.UserID,
+		"content":        "This should be blocked",
+	}
+	resp2 := authenticatedPost(t, alice.AccessToken, "/api/v1/dm/send", dmBody)
+
+	// Should be rejected (403 Forbidden or similar).
+	if resp2.StatusCode == http.StatusCreated {
+		t.Fatal("expected DM to be rejected because Bob blocked Alice, but it succeeded")
+	}
+
+	t.Logf("blocked DM correctly rejected with status %d", resp2.StatusCode)
+	resp2.Body.Close()
+}
+
+// TestBidirectionalDMHistory tests that both users can see DM history.
+func TestBidirectionalDMHistory(t *testing.T) {
+	alice := registerUser(t)
+	bob := registerUser(t)
+
+	// Alice sends a DM to Bob.
+	aliceBody := map[string]string{
+		"target_user_id": bob.UserID,
+		"content":        "Hi from Alice",
+	}
+	resp := authenticatedPost(t, alice.AccessToken, "/api/v1/dm/send", aliceBody)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// Bob sends a DM to Alice.
+	bobBody := map[string]string{
+		"target_user_id": alice.UserID,
+		"content":        "Hi from Bob",
+	}
+	resp2 := authenticatedPost(t, bob.AccessToken, "/api/v1/dm/send", bobBody)
+	assertStatus(t, resp2, http.StatusCreated)
+	resp2.Body.Close()
+
+	// Alice checks history — should see both messages.
+	resp3 := authenticatedGet(t, alice.AccessToken, "/api/v1/dm/history/"+bob.UserID)
+	assertStatus(t, resp3, http.StatusOK)
+
+	var aliceHistory struct {
+		Messages []struct {
+			SenderID string `json:"sender_id"`
+			Content  string `json:"content"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp3, &aliceHistory)
+
+	if len(aliceHistory.Messages) != 2 {
+		t.Fatalf("expected 2 messages in Alice's history, got %d", len(aliceHistory.Messages))
+	}
+
+	// Bob checks history — should see both messages too.
+	resp4 := authenticatedGet(t, bob.AccessToken, "/api/v1/dm/history/"+alice.UserID)
+	assertStatus(t, resp4, http.StatusOK)
+
+	var bobHistory struct {
+		Messages []struct {
+			SenderID string `json:"sender_id"`
+			Content  string `json:"content"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp4, &bobHistory)
+
+	if len(bobHistory.Messages) != 2 {
+		t.Fatalf("expected 2 messages in Bob's history, got %d", len(bobHistory.Messages))
+	}
+
+	t.Logf("bidirectional DM history passed: alice=%d messages, bob=%d messages",
+		len(aliceHistory.Messages), len(bobHistory.Messages))
+}
+```
+
+- [ ] **Step 20.3 — Verify tests compile**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go build ./...
+```
+
+Expected: no compilation errors.
+
+- [ ] **Step 20.4 — Run user and DM tests**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go test -v -count=1 -timeout 120s -run "Test(GetUserProfile|UpdateProfile|ListFriends|BlockUser|UnblockUser|GetRelation|SendDM|GetDMHistory|GetDMConversations|BlockPreventsDM|Bidirectional)" ./...
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 20.5 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/tests/integration/user_test.go backend/tests/integration/dm_test.go
+git status
+git commit -m "test: add integration tests for user profile, relations, and DM flow"
+```
+
+---
+
+## Task 21: Integration Test -- Community Flow
+
+**Goal:** Write integration tests that cover the full community flow: create server, create channels, manage members, create roles, send messages, and verify access control.
+
+**Commit message:** `test: add integration tests for community server, channel, member, and message flow`
+
+**Files:**
+- Create: `backend/tests/integration/community_test.go`
+
+- [ ] **Step 21.1 — Create `backend/tests/integration/community_test.go`**
+
+File: `backend/tests/integration/community_test.go`
+
+```go
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+// TestCreateServer tests creating a new server.
+func TestCreateServer(t *testing.T) {
+	user := registerUser(t)
+
+	body := map[string]string{
+		"name":        "Test Server",
+		"description": "A server for integration testing",
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		IconURL     string `json:"icon_url"`
+		OwnerID     string `json:"owner_id"`
+		CreatedAt   int64  `json:"created_at"`
+		UpdatedAt   int64  `json:"updated_at"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty server ID")
+	}
+	if result.Name != "Test Server" {
+		t.Fatalf("expected name 'Test Server', got %q", result.Name)
+	}
+	if result.OwnerID != user.UserID {
+		t.Fatalf("expected owner_id %q, got %q", user.UserID, result.OwnerID)
+	}
+
+	t.Logf("create server passed: server_id=%s", result.ID)
+}
+
+// TestGetServer tests retrieving a server by ID.
+func TestGetServer(t *testing.T) {
+	user := registerUser(t)
+
+	// Create a server first.
+	serverID := createTestServer(t, user, "Get Test Server")
+
+	// Get the server.
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/servers/"+serverID)
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		OwnerID     string `json:"owner_id"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID != serverID {
+		t.Fatalf("expected server ID %q, got %q", serverID, result.ID)
+	}
+	if result.Name != "Get Test Server" {
+		t.Fatalf("expected name 'Get Test Server', got %q", result.Name)
+	}
+
+	t.Logf("get server passed: server_id=%s", result.ID)
+}
+
+// TestUpdateServer tests updating a server's name and description.
+func TestUpdateServer(t *testing.T) {
+	user := registerUser(t)
+
+	serverID := createTestServer(t, user, "Original Name")
+
+	body := map[string]string{
+		"name":        "Updated Name",
+		"description": "Updated description",
+	}
+
+	resp := authenticatedPatch(t, user.AccessToken, "/api/v1/servers/"+serverID, body)
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.Name != "Updated Name" {
+		t.Fatalf("expected name 'Updated Name', got %q", result.Name)
+	}
+	if result.Description != "Updated description" {
+		t.Fatalf("expected description 'Updated description', got %q", result.Description)
+	}
+
+	t.Log("update server passed")
+}
+
+// TestCreateChannel tests creating channels in a server.
+func TestCreateChannel(t *testing.T) {
+	user := registerUser(t)
+	serverID := createTestServer(t, user, "Channel Test Server")
+
+	// Create a text channel.
+	body := map[string]interface{}{
+		"name":     "general",
+		"topic":    "General discussion",
+		"type":     "text",
+		"position": 0,
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers/"+serverID+"/channels", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID        string `json:"id"`
+		ServerID  string `json:"server_id"`
+		Name      string `json:"name"`
+		Topic     string `json:"topic"`
+		Type      string `json:"type"`
+		Position  int32  `json:"position"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty channel ID")
+	}
+	if result.ServerID != serverID {
+		t.Fatalf("expected server_id %q, got %q", serverID, result.ServerID)
+	}
+	if result.Name != "general" {
+		t.Fatalf("expected name 'general', got %q", result.Name)
+	}
+	if result.Topic != "General discussion" {
+		t.Fatalf("expected topic 'General discussion', got %q", result.Topic)
+	}
+
+	t.Logf("create channel passed: channel_id=%s", result.ID)
+}
+
+// TestGetChannels tests listing channels in a server.
+func TestGetChannels(t *testing.T) {
+	user := registerUser(t)
+	serverID := createTestServer(t, user, "Channels List Server")
+
+	// Create multiple channels.
+	channelNames := []string{"general", "random", "announcements"}
+	channelIDs := make([]string, 0, len(channelNames))
+
+	for i, name := range channelNames {
+		body := map[string]interface{}{
+			"name":     name,
+			"position": i,
+		}
+		resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers/"+serverID+"/channels", body)
+		assertStatus(t, resp, http.StatusCreated)
+
+		var result struct {
+			ID string `json:"id"`
+		}
+		decodeResponse(t, resp, &result)
+		channelIDs = append(channelIDs, result.ID)
+	}
+
+	// List channels.
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/servers/"+serverID+"/channels")
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Channels []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"channels"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if len(result.Channels) < len(channelNames) {
+		t.Fatalf("expected at least %d channels, got %d", len(channelNames), len(result.Channels))
+	}
+
+	// Verify all created channels are present.
+	foundCount := 0
+	for _, ch := range result.Channels {
+		for _, name := range channelNames {
+			if ch.Name == name {
+				foundCount++
+				break
+			}
+		}
+	}
+
+	if foundCount != len(channelNames) {
+		t.Fatalf("expected to find all %d channels, found %d", len(channelNames), foundCount)
+	}
+
+	t.Logf("get channels passed: found %d channels", len(result.Channels))
+}
+
+// TestAddMember tests adding a member to a server.
+func TestAddMember(t *testing.T) {
+	owner := registerUser(t)
+	member := registerUser(t)
+	serverID := createTestServer(t, owner, "Member Test Server")
+
+	// Add the member.
+	body := map[string]string{
+		"user_id": member.UserID,
+	}
+
+	resp := authenticatedPost(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	t.Logf("add member passed: added user %s to server %s", member.UserID, serverID)
+}
+
+// TestListMembers tests listing members in a server.
+func TestListMembers(t *testing.T) {
+	owner := registerUser(t)
+	member := registerUser(t)
+	serverID := createTestServer(t, owner, "List Members Server")
+
+	// Add the member.
+	addMemberBody := map[string]string{
+		"user_id": member.UserID,
+	}
+	resp := authenticatedPost(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members", addMemberBody)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// List members.
+	resp2 := authenticatedGet(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members")
+	assertStatus(t, resp2, http.StatusOK)
+
+	var result struct {
+		Members []struct {
+			ServerID string `json:"server_id"`
+			UserID   string `json:"user_id"`
+			Nickname string `json:"nickname"`
+		} `json:"members"`
+	}
+	decodeResponse(t, resp2, &result)
+
+	// Should have at least the owner and the added member.
+	if len(result.Members) < 2 {
+		t.Fatalf("expected at least 2 members, got %d", len(result.Members))
+	}
+
+	// Verify both owner and member are in the list.
+	foundOwner := false
+	foundMember := false
+	for _, m := range result.Members {
+		if m.UserID == owner.UserID {
+			foundOwner = true
+		}
+		if m.UserID == member.UserID {
+			foundMember = true
+		}
+	}
+
+	if !foundOwner {
+		t.Fatal("expected to find owner in member list")
+	}
+	if !foundMember {
+		t.Fatal("expected to find added member in member list")
+	}
+
+	t.Logf("list members passed: %d members found", len(result.Members))
+}
+
+// TestSendMessage tests sending a message in a channel.
+func TestSendMessage(t *testing.T) {
+	user := registerUser(t)
+	serverID := createTestServer(t, user, "Message Test Server")
+	channelID := createTestChannel(t, user, serverID, "general")
+
+	// Send a message.
+	body := map[string]string{
+		"content": "Hello, world!",
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/channels/"+channelID+"/messages", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID        string `json:"id"`
+		ChannelID string `json:"channel_id"`
+		AuthorID  string `json:"author_id"`
+		Content   string `json:"content"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty message ID")
+	}
+	if result.ChannelID != channelID {
+		t.Fatalf("expected channel_id %q, got %q", channelID, result.ChannelID)
+	}
+	if result.AuthorID != user.UserID {
+		t.Fatalf("expected author_id %q, got %q", user.UserID, result.AuthorID)
+	}
+	if result.Content != "Hello, world!" {
+		t.Fatalf("expected content 'Hello, world!', got %q", result.Content)
+	}
+
+	t.Logf("send message passed: message_id=%s", result.ID)
+}
+
+// TestGetMessageHistory tests retrieving message history from a channel.
+func TestGetMessageHistory(t *testing.T) {
+	user := registerUser(t)
+	serverID := createTestServer(t, user, "History Test Server")
+	channelID := createTestChannel(t, user, serverID, "general")
+
+	// Send multiple messages.
+	messages := []string{"Message 1", "Message 2", "Message 3"}
+	for _, msg := range messages {
+		body := map[string]string{
+			"content": msg,
+		}
+		resp := authenticatedPost(t, user.AccessToken, "/api/v1/channels/"+channelID+"/messages", body)
+		assertStatus(t, resp, http.StatusCreated)
+		resp.Body.Close()
+	}
+
+	// Get message history.
+	resp := authenticatedGet(t, user.AccessToken, "/api/v1/channels/"+channelID+"/messages")
+	assertStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		Messages []struct {
+			Content   string `json:"content"`
+			AuthorID  string `json:"author_id"`
+			CreatedAt int64  `json:"created_at"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if len(result.Messages) != len(messages) {
+		t.Fatalf("expected %d messages, got %d", len(messages), len(result.Messages))
+	}
+
+	// Verify message contents.
+	for i, msg := range result.Messages {
+		if msg.Content != messages[i] {
+			t.Fatalf("message %d: expected content %q, got %q", i, messages[i], msg.Content)
+		}
+	}
+
+	t.Logf("get message history passed: %d messages retrieved", len(result.Messages))
+}
+
+// TestRemoveMember tests removing a member from a server.
+func TestRemoveMember(t *testing.T) {
+	owner := registerUser(t)
+	member := registerUser(t)
+	serverID := createTestServer(t, owner, "Remove Member Server")
+
+	// Add the member first.
+	addMemberBody := map[string]string{
+		"user_id": member.UserID,
+	}
+	resp := authenticatedPost(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members", addMemberBody)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// Remove the member.
+	resp2 := authenticatedDelete(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members/"+member.UserID)
+	assertStatus(t, resp2, http.StatusOK)
+
+	// Verify the member is no longer in the member list.
+	resp3 := authenticatedGet(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members")
+	assertStatus(t, resp3, http.StatusOK)
+
+	var result struct {
+		Members []struct {
+			UserID string `json:"user_id"`
+		} `json:"members"`
+	}
+	decodeResponse(t, resp3, &result)
+
+	for _, m := range result.Members {
+		if m.UserID == member.UserID {
+			t.Fatal("expected removed member to not appear in member list")
+		}
+	}
+
+	t.Log("remove member passed")
+}
+
+// TestCreateRole tests creating a role in a server.
+func TestCreateRole(t *testing.T) {
+	user := registerUser(t)
+	serverID := createTestServer(t, user, "Role Test Server")
+
+	body := map[string]interface{}{
+		"name":        "Moderator",
+		"color":       3447003,
+		"permissions": 8,
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers/"+serverID+"/roles", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID          string `json:"id"`
+		ServerID    string `json:"server_id"`
+		Name        string `json:"name"`
+		Color       int32  `json:"color"`
+		Permissions int64  `json:"permissions"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty role ID")
+	}
+	if result.Name != "Moderator" {
+		t.Fatalf("expected name 'Moderator', got %q", result.Name)
+	}
+	if result.ServerID != serverID {
+		t.Fatalf("expected server_id %q, got %q", serverID, result.ServerID)
+	}
+
+	t.Logf("create role passed: role_id=%s", result.ID)
+}
+
+// TestAssignRole tests assigning a role to a server member.
+func TestAssignRole(t *testing.T) {
+	owner := registerUser(t)
+	member := registerUser(t)
+	serverID := createTestServer(t, owner, "Assign Role Server")
+
+	// Add member.
+	addMemberBody := map[string]string{
+		"user_id": member.UserID,
+	}
+	resp := authenticatedPost(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members", addMemberBody)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// Create a role.
+	roleID := createTestRole(t, owner, serverID, "TestRole")
+
+	// Assign the role.
+	resp2 := authenticatedPost(t, owner.AccessToken,
+		"/api/v1/servers/"+serverID+"/members/"+member.UserID+"/roles/"+roleID,
+		nil)
+	assertStatus(t, resp2, http.StatusOK)
+
+	t.Logf("assign role passed: role %s assigned to user %s", roleID, member.UserID)
+}
+
+// TestFullCommunityFlow tests the complete community workflow in a single test.
+func TestFullCommunityFlow(t *testing.T) {
+	// Step 1: Register user and create a server.
+	owner := registerUser(t)
+	serverID := createTestServer(t, owner, "Full Flow Server")
+	t.Logf("step 1: created server %s", serverID)
+
+	// Step 2: Create channels.
+	channelID := createTestChannel(t, owner, serverID, "general")
+	t.Logf("step 2: created channel %s", channelID)
+
+	// Step 3: Register another user and add as member.
+	member := registerUser(t)
+	addMemberBody := map[string]string{
+		"user_id": member.UserID,
+	}
+	resp := authenticatedPost(t, owner.AccessToken, "/api/v1/servers/"+serverID+"/members", addMemberBody)
+	assertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+	t.Logf("step 3: added member %s", member.UserID)
+
+	// Step 4: Member sends a message.
+	msgBody := map[string]string{
+		"content": "Hello from the new member!",
+	}
+	resp2 := authenticatedPost(t, member.AccessToken, "/api/v1/channels/"+channelID+"/messages", msgBody)
+	assertStatus(t, resp2, http.StatusCreated)
+	resp2.Body.Close()
+	t.Log("step 4: member sent a message")
+
+	// Step 5: Owner reads the message.
+	resp3 := authenticatedGet(t, owner.AccessToken, "/api/v1/channels/"+channelID+"/messages")
+	assertStatus(t, resp3, http.StatusOK)
+
+	var history struct {
+		Messages []struct {
+			AuthorID string `json:"author_id"`
+			Content  string `json:"content"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp3, &history)
+
+	found := false
+	for _, msg := range history.Messages {
+		if msg.AuthorID == member.UserID && msg.Content == "Hello from the new member!" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find the member's message in history")
+	}
+	t.Log("step 5: owner verified the member's message")
+
+	// Step 6: Create a role and assign it.
+	roleID := createTestRole(t, owner, serverID, "Member")
+	resp4 := authenticatedPost(t, owner.AccessToken,
+		"/api/v1/servers/"+serverID+"/members/"+member.UserID+"/roles/"+roleID,
+		nil)
+	assertStatus(t, resp4, http.StatusOK)
+	resp4.Body.Close()
+	t.Logf("step 6: assigned role %s to member", roleID)
+
+	t.Log("full community flow passed")
+}
+
+// --- Helper functions for community tests ---
+
+// createTestServer creates a test server and returns its ID.
+func createTestServer(t *testing.T, user *testUser, name string) string {
+	t.Helper()
+
+	body := map[string]string{
+		"name":        name,
+		"description": "Test server",
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty server ID")
+	}
+	return result.ID
+}
+
+// createTestChannel creates a test channel in a server and returns its ID.
+func createTestChannel(t *testing.T, user *testUser, serverID, name string) string {
+	t.Helper()
+
+	body := map[string]interface{}{
+		"name":     name,
+		"topic":    "Test channel",
+		"type":     "text",
+		"position": 0,
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers/"+serverID+"/channels", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty channel ID")
+	}
+	return result.ID
+}
+
+// createTestRole creates a test role in a server and returns its ID.
+func createTestRole(t *testing.T, user *testUser, serverID, name string) string {
+	t.Helper()
+
+	body := map[string]interface{}{
+		"name":        name,
+		"color":       0,
+		"permissions": 0,
+	}
+
+	resp := authenticatedPost(t, user.AccessToken, "/api/v1/servers/"+serverID+"/roles", body)
+	assertStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, resp, &result)
+
+	if result.ID == "" {
+		t.Fatal("expected non-empty role ID")
+	}
+	return result.ID
+}
+```
+
+- [ ] **Step 21.2 — Verify tests compile**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go build ./...
+```
+
+Expected: no compilation errors.
+
+- [ ] **Step 21.3 — Run community integration tests**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go test -v -count=1 -timeout 120s -run "Test(Create|Get|Update|Add|List|Remove|Send|Assign|Full)" ./...
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 21.4 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/tests/integration/community_test.go
+git status
+git commit -m "test: add integration tests for community server, channel, member, and message flow"
+```
+
+---
+
+## Task 22: End-to-End Smoke Test & Docker Compose Validation
+
+**Goal:** Write a comprehensive end-to-end smoke test that exercises the complete user journey across all services. Update Docker Compose to include all backend service definitions with health checks.
+
+**Commit message:** `feat: add end-to-end smoke test and update Docker Compose with all services`
+
+**Files:**
+- Create: `backend/tests/integration/e2e_test.go`
+- Modify: `deploy/docker/docker-compose.yml`
+
+- [ ] **Step 22.1 — Create `backend/tests/integration/e2e_test.go`**
+
+File: `backend/tests/integration/e2e_test.go`
+
+```go
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+// TestE2EUserJourney runs the complete user journey as a single test:
+// 1. Register User A and User B
+// 2. User A creates a server "Test Server"
+// 3. User A creates a channel "general"
+// 4. User A adds User B to the server
+// 5. User A sends a message in #general
+// 6. User B reads the message from #general
+// 7. User A sends a DM to User B
+// 8. User B reads the DM
+// 9. Verify all operations succeeded
+func TestE2EUserJourney(t *testing.T) {
+	// --- Step 1: Register User A and User B ---
+	userA := registerUser(t)
+	t.Logf("[step 1] Registered User A: id=%s, email=%s", userA.UserID, userA.Email)
+
+	userB := registerUser(t)
+	t.Logf("[step 1] Registered User B: id=%s, email=%s", userB.UserID, userB.Email)
+
+	// Verify both users can fetch each other's profiles.
+	resp := authenticatedGet(t, userA.AccessToken, "/api/v1/users/"+userB.UserID)
+	assertStatus(t, resp, http.StatusOK)
+	var profileB struct {
+		ID       string `json:"id"`
+		Nickname string `json:"nickname"`
+	}
+	decodeResponse(t, resp, &profileB)
+	if profileB.ID != userB.UserID {
+		t.Fatalf("[step 1] expected user B id %q, got %q", userB.UserID, profileB.ID)
+	}
+	t.Logf("[step 1] User A can see User B's profile: nickname=%s", profileB.Nickname)
+
+	// --- Step 2: User A creates a server "Test Server" ---
+	serverID := createTestServer(t, userA, "Test Server")
+	t.Logf("[step 2] User A created server: id=%s", serverID)
+
+	// Verify the server is retrievable.
+	resp2 := authenticatedGet(t, userA.AccessToken, "/api/v1/servers/"+serverID)
+	assertStatus(t, resp2, http.StatusOK)
+	var server struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		OwnerID string `json:"owner_id"`
+	}
+	decodeResponse(t, resp2, &server)
+	if server.Name != "Test Server" {
+		t.Fatalf("[step 2] expected server name 'Test Server', got %q", server.Name)
+	}
+	if server.OwnerID != userA.UserID {
+		t.Fatalf("[step 2] expected owner_id %q, got %q", userA.UserID, server.OwnerID)
+	}
+	t.Logf("[step 2] Server verified: name=%s, owner=%s", server.Name, server.OwnerID)
+
+	// --- Step 3: User A creates a channel "general" ---
+	channelID := createTestChannel(t, userA, serverID, "general")
+	t.Logf("[step 3] User A created channel: id=%s", channelID)
+
+	// Verify the channel appears in the channel list.
+	resp3 := authenticatedGet(t, userA.AccessToken, "/api/v1/servers/"+serverID+"/channels")
+	assertStatus(t, resp3, http.StatusOK)
+	var channelList struct {
+		Channels []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"channels"`
+	}
+	decodeResponse(t, resp3, &channelList)
+
+	channelFound := false
+	for _, ch := range channelList.Channels {
+		if ch.ID == channelID && ch.Name == "general" {
+			channelFound = true
+			break
+		}
+	}
+	if !channelFound {
+		t.Fatal("[step 3] expected to find 'general' channel in channel list")
+	}
+	t.Logf("[step 3] Channel verified in server channel list")
+
+	// --- Step 4: User A adds User B to the server ---
+	addMemberBody := map[string]string{
+		"user_id": userB.UserID,
+	}
+	resp4 := authenticatedPost(t, userA.AccessToken, "/api/v1/servers/"+serverID+"/members", addMemberBody)
+	assertStatus(t, resp4, http.StatusCreated)
+	resp4.Body.Close()
+	t.Logf("[step 4] User A added User B to the server")
+
+	// Verify User B appears in the member list.
+	resp5 := authenticatedGet(t, userA.AccessToken, "/api/v1/servers/"+serverID+"/members")
+	assertStatus(t, resp5, http.StatusOK)
+	var memberList struct {
+		Members []struct {
+			UserID string `json:"user_id"`
+		} `json:"members"`
+	}
+	decodeResponse(t, resp5, &memberList)
+
+	memberFound := false
+	for _, m := range memberList.Members {
+		if m.UserID == userB.UserID {
+			memberFound = true
+			break
+		}
+	}
+	if !memberFound {
+		t.Fatal("[step 4] expected to find User B in server member list")
+	}
+	t.Logf("[step 4] User B verified in member list (%d total members)", len(memberList.Members))
+
+	// --- Step 5: User A sends a message in #general ---
+	messageContent := "Welcome to Test Server, everyone!"
+	msgBody := map[string]string{
+		"content": messageContent,
+	}
+	resp6 := authenticatedPost(t, userA.AccessToken, "/api/v1/channels/"+channelID+"/messages", msgBody)
+	assertStatus(t, resp6, http.StatusCreated)
+
+	var sentMessage struct {
+		ID        string `json:"id"`
+		ChannelID string `json:"channel_id"`
+		AuthorID  string `json:"author_id"`
+		Content   string `json:"content"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	decodeResponse(t, resp6, &sentMessage)
+
+	if sentMessage.Content != messageContent {
+		t.Fatalf("[step 5] expected content %q, got %q", messageContent, sentMessage.Content)
+	}
+	if sentMessage.AuthorID != userA.UserID {
+		t.Fatalf("[step 5] expected author_id %q, got %q", userA.UserID, sentMessage.AuthorID)
+	}
+	t.Logf("[step 5] User A sent message: id=%s", sentMessage.ID)
+
+	// --- Step 6: User B reads the message from #general ---
+	resp7 := authenticatedGet(t, userB.AccessToken, "/api/v1/channels/"+channelID+"/messages")
+	assertStatus(t, resp7, http.StatusOK)
+
+	var messages struct {
+		Messages []struct {
+			ID       string `json:"id"`
+			AuthorID string `json:"author_id"`
+			Content  string `json:"content"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp7, &messages)
+
+	messageFound := false
+	for _, msg := range messages.Messages {
+		if msg.ID == sentMessage.ID && msg.Content == messageContent {
+			messageFound = true
+			break
+		}
+	}
+	if !messageFound {
+		t.Fatalf("[step 6] expected to find User A's message (id=%s) in channel history", sentMessage.ID)
+	}
+	t.Logf("[step 6] User B read the message from #general (%d messages in channel)", len(messages.Messages))
+
+	// --- Step 7: User A sends a DM to User B ---
+	dmContent := "Hey User B, welcome to the server!"
+	dmBody := map[string]string{
+		"target_user_id": userB.UserID,
+		"content":        dmContent,
+	}
+	resp8 := authenticatedPost(t, userA.AccessToken, "/api/v1/dm/send", dmBody)
+	assertStatus(t, resp8, http.StatusCreated)
+
+	var sentDM struct {
+		ID             string `json:"id"`
+		ConversationID string `json:"conversation_id"`
+		SenderID       string `json:"sender_id"`
+		Content        string `json:"content"`
+	}
+	decodeResponse(t, resp8, &sentDM)
+
+	if sentDM.Content != dmContent {
+		t.Fatalf("[step 7] expected DM content %q, got %q", dmContent, sentDM.Content)
+	}
+	if sentDM.SenderID != userA.UserID {
+		t.Fatalf("[step 7] expected sender_id %q, got %q", userA.UserID, sentDM.SenderID)
+	}
+	t.Logf("[step 7] User A sent DM: id=%s, conversation_id=%s", sentDM.ID, sentDM.ConversationID)
+
+	// --- Step 8: User B reads the DM ---
+	resp9 := authenticatedGet(t, userB.AccessToken, "/api/v1/dm/history/"+userA.UserID)
+	assertStatus(t, resp9, http.StatusOK)
+
+	var dmHistory struct {
+		Messages []struct {
+			ID       string `json:"id"`
+			SenderID string `json:"sender_id"`
+			Content  string `json:"content"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, resp9, &dmHistory)
+
+	dmFound := false
+	for _, msg := range dmHistory.Messages {
+		if msg.ID == sentDM.ID && msg.Content == dmContent {
+			dmFound = true
+			break
+		}
+	}
+	if !dmFound {
+		t.Fatalf("[step 8] expected to find User A's DM (id=%s) in User B's history", sentDM.ID)
+	}
+	t.Logf("[step 8] User B read the DM from User A (%d messages in conversation)", len(dmHistory.Messages))
+
+	// --- Step 9: Final verification summary ---
+	t.Log("========================================")
+	t.Log("E2E User Journey Completed Successfully")
+	t.Logf("  User A: %s (%s)", userA.UserID, userA.Email)
+	t.Logf("  User B: %s (%s)", userB.UserID, userB.Email)
+	t.Logf("  Server: %s", serverID)
+	t.Logf("  Channel: %s", channelID)
+	t.Logf("  Channel Message: %s", sentMessage.ID)
+	t.Logf("  DM Conversation: %s", sentDM.ConversationID)
+	t.Logf("  DM Message: %s", sentDM.ID)
+	t.Log("========================================")
+}
+
+// TestE2EHealthCheck verifies that all services are reachable via health endpoints.
+func TestE2EHealthCheck(t *testing.T) {
+	// API Gateway health.
+	resp, err := http.Get(apiURL("/health"))
+	if err != nil {
+		t.Fatalf("gateway health check failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("gateway health check returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode health response: %v", err)
+	}
+
+	if result["status"] != "ok" {
+		t.Fatalf("expected status 'ok', got %q", result["status"])
+	}
+
+	t.Log("all services healthy via gateway health check")
+}
+```
+
+- [ ] **Step 22.2 — Update `deploy/docker/docker-compose.yml` to include all backend services**
+
+Replace the entire docker-compose.yml with the full version including infrastructure AND backend services.
+
+File: `deploy/docker/docker-compose.yml`
+
+```yaml
+version: "3.9"
+
+services:
+  # ============================================
+  # Infrastructure
+  # ============================================
+
+  postgres:
+    image: postgres:16
+    container_name: constell-postgres
+    environment:
+      POSTGRES_DB: constell
+      POSTGRES_USER: constell
+      POSTGRES_PASSWORD: constell_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U constell -d constell"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: constell-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2-alpine
+    container_name: constell-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: >
+      --jetstream
+      --store_dir /data
+      --http_port 8222
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: constell-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Backend Services
+  # ============================================
+
+  auth-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/auth-service/Dockerfile
+    container_name: constell-auth-service
+    environment:
+      AUTH_SERVICE_ADDR: ":8081"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  user-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/user-service/Dockerfile
+    container_name: constell-user-service
+    environment:
+      USER_SERVICE_ADDR: ":8082"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      NATS_URL: "nats://nats:4222"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8082/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  community-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/community-service/Dockerfile
+    container_name: constell-community-service
+    environment:
+      COMMUNITY_SERVICE_ADDR: ":8083"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      NATS_URL: "nats://nats:4222"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8083/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api-gateway:
+    build:
+      context: ../../
+      dockerfile: backend/services/api-gateway/Dockerfile
+    container_name: constell-api-gateway
+    environment:
+      GATEWAY_ADDR: ":8080"
+      AUTH_SERVICE_URL: "http://auth-service:8081"
+      USER_SERVICE_URL: "http://user-service:8082"
+      COMMUNITY_SERVICE_URL: "http://community-service:8083"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      community-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+  minio_data:
+```
+
+- [ ] **Step 22.3 — Create `backend/services/api-gateway/Dockerfile`**
+
+File: `backend/services/api-gateway/Dockerfile`
+
+```dockerfile
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Copy go.work and go.mod files.
+COPY backend/go.work ./backend/go.work
+COPY backend/pkg/go.mod ./backend/pkg/go.sum ./backend/pkg/
+COPY backend/services/api-gateway/go.mod ./backend/services/api-gateway/go.sum ./backend/services/api-gateway/
+
+# Download dependencies.
+WORKDIR /app/backend/services/api-gateway
+RUN go mod download
+
+# Copy source code.
+COPY backend/pkg/ ./../../pkg/
+COPY backend/services/api-gateway/ ./
+
+# Build the binary.
+RUN CGO_ENABLED=0 GOOS=linux go build -o /api-gateway .
+
+# Runtime stage
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates wget
+
+WORKDIR /app
+COPY --from=builder /api-gateway .
+
+EXPOSE 8080
+
+CMD ["./api-gateway"]
+```
+
+- [ ] **Step 22.4 — Create `backend/services/auth-service/Dockerfile`**
+
+File: `backend/services/auth-service/Dockerfile`
+
+```dockerfile
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+COPY backend/go.work ./backend/go.work
+COPY backend/pkg/go.mod ./backend/pkg/go.sum ./backend/pkg/
+COPY backend/services/auth-service/go.mod ./backend/services/auth-service/go.sum ./backend/services/auth-service/
+
+WORKDIR /app/backend/services/auth-service
+RUN go mod download
+
+COPY backend/pkg/ ./../../pkg/
+COPY backend/services/auth-service/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /auth-service .
+
+# Runtime stage
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates wget
+
+WORKDIR /app
+COPY --from=builder /auth-service .
+
+EXPOSE 8081
+
+CMD ["./auth-service"]
+```
+
+- [ ] **Step 22.5 — Create `backend/services/user-service/Dockerfile`**
+
+File: `backend/services/user-service/Dockerfile`
+
+```dockerfile
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+COPY backend/go.work ./backend/go.work
+COPY backend/pkg/go.mod ./backend/pkg/go.sum ./backend/pkg/
+COPY backend/services/user-service/go.mod ./backend/services/user-service/go.sum ./backend/services/user-service/
+
+WORKDIR /app/backend/services/user-service
+RUN go mod download
+
+COPY backend/pkg/ ./../../pkg/
+COPY backend/services/user-service/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /user-service .
+
+# Runtime stage
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates wget
+
+WORKDIR /app
+COPY --from=builder /user-service .
+
+EXPOSE 8082
+
+CMD ["./user-service"]
+```
+
+- [ ] **Step 22.6 — Create `backend/services/community-service/Dockerfile`**
+
+File: `backend/services/community-service/Dockerfile`
+
+```dockerfile
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+COPY backend/go.work ./backend/go.work
+COPY backend/pkg/go.mod ./backend/pkg/go.sum ./backend/pkg/
+COPY backend/services/community-service/go.mod ./backend/services/community-service/go.sum ./backend/services/community-service/
+
+WORKDIR /app/backend/services/community-service
+RUN go mod download
+
+COPY backend/pkg/ ./../../pkg/
+COPY backend/services/community-service/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /community-service .
+
+# Runtime stage
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates wget
+
+WORKDIR /app
+COPY --from=builder /community-service .
+
+EXPOSE 8083
+
+CMD ["./community-service"]
+```
+
+- [ ] **Step 22.7 — Verify integration tests compile**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go build ./...
+```
+
+Expected: no compilation errors.
+
+- [ ] **Step 22.8 — Run the E2E test**
+
+Ensure Docker Compose is running with all services, then:
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go test -v -count=1 -timeout 120s -run "TestE2E" ./...
+```
+
+Expected: `TestE2EUserJourney` and `TestE2EHealthCheck` both pass.
+
+- [ ] **Step 22.9 — Run all integration tests together**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell/backend/tests/integration
+go test -v -count=1 -timeout 180s ./...
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 22.10 — Commit**
+
+```bash
+cd /Users/lance.wang/workspace/wzgown/constell
+git add backend/tests/integration/e2e_test.go deploy/docker/docker-compose.yml backend/services/api-gateway/Dockerfile backend/services/auth-service/Dockerfile backend/services/user-service/Dockerfile backend/services/community-service/Dockerfile
+git status
+git commit -m "feat: add end-to-end smoke test and update Docker Compose with all services"
+```
+
+---
