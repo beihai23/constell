@@ -1,43 +1,45 @@
+# --- Superpowers ---
 .superpowers/
 
-# Binaries
+# --- Binaries & build artifacts ---
+/bin/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary
+*.out
 *.test
 
-# Output
-*.out
+# Per-service compiled binaries (match the service directory name)
+backend/services/api-gateway/api-gateway
+backend/services/auth-service/auth-service
+backend/services/community-service/community-service
+backend/services/user-service/user-service
+backend/services/ws-gateway/ws-gateway
+backend/tools/migrate/migrate
 
-# Go workspace vendor directory
+# --- Go ---
 vendor/
+backend/go.work.sum
 
-# IDE
+# --- IDE ---
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# OS
+# --- OS ---
 .DS_Store
 
-# Environment
+# --- Environment ---
 .env
 .env.local
+.env.*.local
 
-# Generated proto (optional — commit if desired)
-# backend/pkg/proto/
+# --- Claude Code ---
+.claude/settings.local.json
 
-# Docker volumes
-deploy/docker/data/
-
-# Build artifacts
-*.test
-backend/services/*/api-gateway
-backend/services/*/*-service
-backend/tools/migrate/migrate
+# --- Docs tooling ---
+docs/.solomd/
