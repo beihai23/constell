@@ -1,4 +1,8 @@
 services:
+  # ============================================
+  # Infrastructure
+  # ============================================
+
   postgres:
     image: postgres:16
     container_name: constell-postgres
@@ -64,6 +68,82 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ============================================
+  # Backend Services
+  # ============================================
+
+  auth-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/auth-service/Dockerfile
+    container_name: constell-auth-service
+    environment:
+      PORT: "9081"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "9081:9081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/user-service/Dockerfile
+    container_name: constell-user-service
+    environment:
+      PORT: "9082"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "9082:9082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  community-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/community-service/Dockerfile
+    container_name: constell-community-service
+    environment:
+      PORT: "9083"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "9083:9083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: ../../
+      dockerfile: backend/services/api-gateway/Dockerfile
+    container_name: constell-api-gateway
+    environment:
+      GATEWAY_ADDR: ":8080"
+      AUTH_SERVICE_URL: "http://auth-service:9081"
+      USER_SERVICE_URL: "http://user-service:9082"
+      COMMUNITY_SERVICE_URL: "http://community-service:9083"
+      JWT_SECRET: "dev-secret-change-me"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-service
+      - user-service
+      - community-service
 
   # ============================================
   # WS Gateway (2 instances for fan-out testing)

@@ -25,6 +25,10 @@ test/ws-gateway:
 test/all:
 	cd backend && go test -v -count=1 ./...
 
+# Integration tests (requires Docker Compose running)
+test/integration:
+	cd backend/tests/integration && go test -v -count=1 -timeout 180s ./...
+
 # --- Build ---
 build:
 	cd backend && go build ./pkg/... ./services/ws-gateway/... ./services/api-gateway/... ./services/auth-service/... ./services/user-service/... ./services/community-service/... ./tests/integration/...
