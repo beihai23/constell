@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/constell/constell/backend/pkg/logging"
 	"github.com/constell/constell/backend/pkg/metrics"
 	"github.com/constell/constell/backend/pkg/middleware"
+	pkgnats "github.com/constell/constell/backend/pkg/nats"
 	pkgotel "github.com/constell/constell/backend/pkg/otel"
 	"github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
 	"github.com/constell/constell/backend/pkg/registry"
@@ -29,6 +31,7 @@ type Config struct {
 	DBUrl     string `env:"DATABASE_URL" default:"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable"`
 	RedisURL  string `env:"REDIS_URL" default:"localhost:6379"`
 	JWTSecret string `env:"JWT_SECRET" default:"dev-secret-change-me"`
+	NatsURL   string `env:"NATS_URL" default:"nats://localhost:4222"`
 	Env       string `env:"ENV" default:"dev"`
 
 	RegistryType    string   `env:"REGISTRY_TYPE" default:"static"`
@@ -85,6 +88,14 @@ func main() {
 	}
 	slog.Info("connected to redis")
 
+	natsResult, err := pkgnats.New(pkgnats.Config{URL: cfg.NatsURL})
+	if err != nil {
+		slog.Error("nats connect", "error", err)
+		os.Exit(1)
+	}
+	defer natsResult.Conn.Close()
+	slog.Info("connected to nats")
+
 	// Init Registry (optional, for groupcache peer discovery)
 	var reg registry.Registry
 	if cfg.RegistryType == "static" && cfg.ServicesCfgPath != "" {
@@ -100,6 +111,12 @@ func main() {
 	hc := health.NewChecker()
 	hc.RegisterCheck("postgres", func(ctx context.Context) error { return pool.Ping(ctx) })
 	hc.RegisterCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
+	hc.RegisterCheck("nats", func(ctx context.Context) error {
+		if !natsResult.Conn.IsConnected() {
+			return fmt.Errorf("nats not connected")
+		}
+		return nil
+	})
 
 	otelInterceptor, err := otelconnect.NewInterceptor()
 	if err != nil {
@@ -111,7 +128,7 @@ func main() {
 	serverCache := NewServerCache(repo, cfg.Peers, reg, "community-service")
 	membersCache := NewMembersCache(repo, cfg.Peers, reg, "community-service")
 	rolesCache := NewRolesCache(repo, cfg.Peers, reg, "community-service")
-	communityService := NewCommunityService(repo, serverCache, membersCache, rolesCache)
+	communityService := NewCommunityService(repo, serverCache, membersCache, rolesCache, natsResult.Conn)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", hc.HealthzHandler())

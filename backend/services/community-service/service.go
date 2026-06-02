@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"connectrpc.com/connect"
+
+	"github.com/nats-io/nats.go"
 
 	pbv1 "github.com/constell/constell/backend/pkg/proto/community/v1"
 	"github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
@@ -19,6 +23,7 @@ type CommunityService struct {
 	serverCache  *ServerCache
 	membersCache *MembersCache
 	rolesCache   *RolesCache
+	natsConn     *nats.Conn
 }
 
 // NewCommunityService creates a new CommunityService.
@@ -27,10 +32,12 @@ func NewCommunityService(
 	serverCache *ServerCache,
 	membersCache *MembersCache,
 	rolesCache *RolesCache,
+	natsConn *nats.Conn,
 ) *CommunityService {
 	return &CommunityService{
 		repo: repo, serverCache: serverCache,
 		membersCache: membersCache, rolesCache: rolesCache,
+		natsConn: natsConn,
 	}
 }
 
@@ -389,6 +396,9 @@ func (s *CommunityService) JoinServer(
 	}
 	s.membersCache.Invalidate(ctx, serverID)
 
+	// Publish member.joined event
+	s.publishMemberJoined(ctx, serverID, callerID, member.Nickname)
+
 	resp := connect.NewResponse(&pbv1.JoinServerResponse{
 		Member: &pbv1.ServerMember{
 			ServerId: member.ServerID, UserId: member.UserID,
@@ -428,6 +438,9 @@ func (s *CommunityService) LeaveServer(
 			fmt.Errorf("failed to leave server: %w", err))
 	}
 	s.membersCache.Invalidate(ctx, serverID)
+
+	// Publish member.left event
+	s.publishMemberLeft(ctx, serverID, callerID)
 
 	resp := connect.NewResponse(&pbv1.LeaveServerResponse{})
 	return resp, nil
@@ -518,6 +531,28 @@ func (s *CommunityService) SendMessage(
 		return nil, connect.NewError(connect.CodeInternal,
 			fmt.Errorf("failed to send message: %w", err))
 	}
+
+	// Insert attachments if file_ids are provided
+	if len(req.Msg.FileIds) > 0 {
+		attachments := make([]*AttachmentRow, 0, len(req.Msg.FileIds))
+		for _, fileID := range req.Msg.FileIds {
+			attachments = append(attachments, &AttachmentRow{
+				MessageType: "channel",
+				MessageID:   msg.ID,
+				FileID:      fileID,
+			})
+		}
+		if err := s.repo.InsertAttachments(ctx, attachments); err != nil {
+			slog.Warn("failed to insert attachments", "error", err)
+		}
+	}
+
+	// Publish message.created NATS event
+	memberIDs := make([]string, 0, len(members))
+	for _, m := range members {
+		memberIDs = append(memberIDs, m.UserID)
+	}
+	s.publishMessageCreated(ctx, msg.ID, channelID, ch.ServerID, callerID, content, msg.CreatedAt.Unix(), memberIDs)
 
 	resp := connect.NewResponse(&pbv1.SendMessageResponse{
 		Message: &pbv1.ChannelMessage{
@@ -643,5 +678,88 @@ func toPBChannel(c *ChannelRow) *pbv1.Channel {
 		Id: c.ID, ServerId: c.ServerID, Name: c.Name, Topic: c.Topic,
 		Type: chType, Position: c.Position,
 		CreatedAt: c.CreatedAt.Unix(), UpdatedAt: c.UpdatedAt.Unix(),
+	}
+}
+
+// publishMessageCreated publishes a constell.message.created NATS event.
+func (s *CommunityService) publishMessageCreated(ctx context.Context, messageID, channelID, serverID, senderID, content string, createdAt int64, memberIDs []string) {
+	if s.natsConn == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"message_id": messageID,
+		"channel_id": channelID,
+		"server_id":  serverID,
+		"sender_id":  senderID,
+		"content":    content,
+		"member_ids": memberIDs,
+		"created_at": createdAt,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("marshal message.created event", "error", err)
+		return
+	}
+	if err := s.natsConn.Publish("constell.message.created", data); err != nil {
+		slog.Warn("publish message.created event", "error", err)
+	}
+}
+
+// publishMemberJoined publishes a constell.member.joined NATS event.
+func (s *CommunityService) publishMemberJoined(ctx context.Context, serverID, userID, nickname string) {
+	if s.natsConn == nil {
+		return
+	}
+	channels, err := s.repo.ListChannelsByServer(ctx, serverID)
+	if err != nil {
+		slog.Warn("list channels for member.joined event", "error", err)
+		return
+	}
+	channelIDs := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		channelIDs = append(channelIDs, ch.ID)
+	}
+	payload := map[string]interface{}{
+		"server_id":   serverID,
+		"user_id":     userID,
+		"nickname":    nickname,
+		"channel_ids": channelIDs,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("marshal member.joined event", "error", err)
+		return
+	}
+	if err := s.natsConn.Publish("constell.member.joined", data); err != nil {
+		slog.Warn("publish member.joined event", "error", err)
+	}
+}
+
+// publishMemberLeft publishes a constell.member.left NATS event.
+func (s *CommunityService) publishMemberLeft(ctx context.Context, serverID, userID string) {
+	if s.natsConn == nil {
+		return
+	}
+	channels, err := s.repo.ListChannelsByServer(ctx, serverID)
+	if err != nil {
+		slog.Warn("list channels for member.left event", "error", err)
+		return
+	}
+	channelIDs := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		channelIDs = append(channelIDs, ch.ID)
+	}
+	payload := map[string]interface{}{
+		"server_id":   serverID,
+		"user_id":     userID,
+		"channel_ids": channelIDs,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("marshal member.left event", "error", err)
+		return
+	}
+	if err := s.natsConn.Publish("constell.member.left", data); err != nil {
+		slog.Warn("publish member.left event", "error", err)
 	}
 }
