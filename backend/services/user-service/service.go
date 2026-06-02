@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"connectrpc.com/connect"
+
+	"github.com/nats-io/nats.go"
 
 	commonv1 "github.com/constell/constell/backend/pkg/proto/common/v1"
 	pbv1 "github.com/constell/constell/backend/pkg/proto/user/v1"
@@ -19,6 +23,7 @@ type UserService struct {
 	userCache     UserCacheReader
 	relationCache RelationCacheReader
 	userWriter    UserCacheWriter
+	natsConn      *nats.Conn
 }
 
 // NewUserService creates a new UserService.
@@ -26,12 +31,14 @@ func NewUserService(
 	repo *Repository,
 	userCache *UserCache,
 	relationCache *RelationCache,
+	natsConn *nats.Conn,
 ) *UserService {
 	return &UserService{
 		repo:          repo,
 		userCache:     userCache,
 		relationCache: relationCache,
 		userWriter:    userCache,
+		natsConn:      natsConn,
 	}
 }
 
@@ -199,6 +206,24 @@ func (s *UserService) SendDM(
 			fmt.Errorf("failed to send DM: %w", err))
 	}
 
+	// Insert attachments if file_ids are provided
+	if len(req.Msg.FileIds) > 0 {
+		attachments := make([]*AttachmentRow, 0, len(req.Msg.FileIds))
+		for _, fileID := range req.Msg.FileIds {
+			attachments = append(attachments, &AttachmentRow{
+				MessageType: "dm",
+				MessageID:   msg.ID,
+				FileID:      fileID,
+			})
+		}
+		if err := s.repo.InsertAttachments(ctx, attachments); err != nil {
+			slog.Warn("failed to insert attachments", "error", err)
+		}
+	}
+
+	// Publish dm.created NATS event
+	s.publishDMCreated(ctx, callerID, targetUserID, conv.ID, content, msg.CreatedAt.Unix())
+
 	resp := connect.NewResponse(&pbv1.SendDMResponse{
 		Message: &pbv1.DMMessage{
 			Id: msg.ID, ConversationId: msg.ConversationID,
@@ -264,4 +289,26 @@ func (s *UserService) GetDMHistory(
 		},
 	})
 	return resp, nil
+}
+
+// publishDMCreated publishes a constell.dm.created NATS event.
+func (s *UserService) publishDMCreated(ctx context.Context, senderID, receiverID, conversationID, content string, createdAt int64) {
+	if s.natsConn == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"sender_id":       senderID,
+		"receiver_id":     receiverID,
+		"conversation_id": conversationID,
+		"content":         content,
+		"created_at":      createdAt,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("marshal dm.created event", "error", err)
+		return
+	}
+	if err := s.natsConn.Publish("constell.dm.created", data); err != nil {
+		slog.Warn("publish dm.created event", "error", err)
+	}
 }
