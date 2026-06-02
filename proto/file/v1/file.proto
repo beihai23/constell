@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package file.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/filev1";
+
+service FileService {
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc InitMultipartUpload(InitMultipartUploadRequest) returns (InitMultipartUploadResponse);
+  rpc UploadPart(UploadPartRequest) returns (UploadPartResponse);
+  rpc CompleteMultipartUpload(CompleteMultipartUploadRequest) returns (CompleteMultipartUploadResponse);
+  rpc GetFilePresignedURL(GetFilePresignedURLRequest) returns (GetFilePresignedURLResponse);
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+}
+
+message UploadFileRequest {
+  string file_id = 1;
+  string filename = 2;
+  string content_type = 3;
+  bytes data = 4;
+}
+message UploadFileResponse {
+  FileInfo file = 1;
+}
+
+message InitMultipartUploadRequest {
+  string file_id = 1;
+  string filename = 2;
+  string content_type = 3;
+}
+message InitMultipartUploadResponse {
+  string upload_id = 1;
+}
+
+message UploadPartRequest {
+  string file_id = 1;
+  string upload_id = 2;
+  int32 part_number = 3;
+  bytes data = 4;
+}
+message UploadPartResponse {
+  string etag = 1;
+}
+
+message CompletedPart {
+  int32 part_number = 1;
+  string etag = 2;
+}
+message CompleteMultipartUploadRequest {
+  string file_id = 1;
+  string upload_id = 2;
+  repeated CompletedPart parts = 3;
+}
+message CompleteMultipartUploadResponse {
+  FileInfo file = 1;
+}
+
+message GetFilePresignedURLRequest {
+  string file_id = 1;
+}
+message GetFilePresignedURLResponse {
+  string url = 1;
+  int64 expires_at = 2;
+}
+
+message DeleteFileRequest {
+  string file_id = 1;
+}
+message DeleteFileResponse {}
+
+message FileInfo {
+  string id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string url = 5;
+  string thumbnail_url = 6;
+  int64 created_at = 7;
+}
