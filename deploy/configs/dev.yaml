@@ -37,3 +37,11 @@ services:
     addr: :9082
   community_service:
     addr: :9083
+
+otel:
+  endpoint: "http://localhost:5080/api/default/v1/otlp"
+  insecure: true
+
+registry:
+  type: static
+  config_path: "deploy/configs/services.yaml"

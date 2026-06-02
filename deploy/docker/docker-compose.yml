@@ -70,6 +70,27 @@ services:
       retries: 5
 
   # ============================================
+  # Observability
+  # ============================================
+
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: constell-openobserve
+    environment:
+      ZO_ROOT_USER_EMAIL: "admin@constell.local"
+      ZO_ROOT_USER_PASSWORD: "admin123"
+      ZO_DATA_DIR: "/data"
+    ports:
+      - "5080:5080"
+    volumes:
+      - oo_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5080/web/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
   # Backend Services
   # ============================================
 
@@ -83,13 +104,23 @@ services:
       DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
       REDIS_URL: "redis:6379"
       JWT_SECRET: "dev-secret-change-me"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "9081:9081"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   user-service:
     build:
@@ -101,13 +132,23 @@ services:
       DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
       REDIS_URL: "redis:6379"
       JWT_SECRET: "dev-secret-change-me"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "9082:9082"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9082/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   community-service:
     build:
@@ -119,13 +160,23 @@ services:
       DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
       REDIS_URL: "redis:6379"
       JWT_SECRET: "dev-secret-change-me"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "9083:9083"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9083/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   api-gateway:
     build:
@@ -138,12 +189,22 @@ services:
       USER_SERVICE_URL: "http://user-service:9082"
       COMMUNITY_SERVICE_URL: "http://community-service:9083"
       JWT_SECRET: "dev-secret-change-me"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "8080:8080"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       - auth-service
       - user-service
       - community-service
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # ============================================
   # WS Gateway (2 instances for fan-out testing)
@@ -162,8 +223,13 @@ services:
       COMMUNITY_SERVICE_ADDR: "http://community-service:9083"
       JWT_SECRET: "dev-secret-change-me"
       GATEWAY_ID: "ws-gateway-1"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "8081:8081"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -189,8 +255,13 @@ services:
       COMMUNITY_SERVICE_ADDR: "http://community-service:9083"
       JWT_SECRET: "dev-secret-change-me"
       GATEWAY_ID: "ws-gateway-2"
+      REGISTRY_TYPE: "static"
+      SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "8082:8081"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -208,3 +279,4 @@ volumes:
   redis_data:
   nats_data:
   minio_data:
+  oo_data:
