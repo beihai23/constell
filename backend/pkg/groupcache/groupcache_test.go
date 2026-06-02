@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/constell/constell/backend/pkg/registry"
 )
 
 // TestBasicGetSet verifies that a local cache miss calls the fill function,
@@ -274,4 +276,68 @@ func TestSetAndRemove(t *testing.T) {
 	}
 
 	t.Log("TestSetAndRemove passed")
+}
+
+type mockRegistry struct {
+	instances []registry.Instance
+	ch        chan []registry.Instance
+}
+
+func (m *mockRegistry) Register(_ context.Context, _ registry.Instance) error { return nil }
+func (m *mockRegistry) Deregister(_ context.Context) error                    { return nil }
+func (m *mockRegistry) Discover(_ context.Context, _ string) ([]registry.Instance, error) {
+	return m.instances, nil
+}
+func (m *mockRegistry) Watch(_ context.Context, _ string) (<-chan []registry.Instance, error) {
+	ch := make(chan []registry.Instance, 1)
+	ch <- m.instances
+	m.ch = ch
+	return ch, nil
+}
+
+func TestRegistryWatchPeers(t *testing.T) {
+	mock := &mockRegistry{
+		instances: []registry.Instance{
+			{ServiceName: "user-service", Addr: "node1:9082"},
+			{ServiceName: "user-service", Addr: "node2:9082"},
+		},
+		ch: make(chan []registry.Instance, 4),
+	}
+
+	cache := NewCache[string, string](
+		WithLocalCapacity[string, string](100),
+		WithRegistry[string, string](mock, "user-service"),
+		WithFiller(func(ctx context.Context, key string) (string, error) {
+			return "val-" + key, nil
+		}),
+	)
+	defer cache.Close()
+
+	// Wait for initial Watch value to be consumed
+	time.Sleep(50 * time.Millisecond)
+
+	cache.mu.RLock()
+	peers := cache.peers
+	cache.mu.RUnlock()
+
+	if len(peers) != 2 {
+		t.Fatalf("expected 2 peers from registry, got %d: %v", len(peers), peers)
+	}
+
+	// Simulate Registry change: add a new instance
+	mock.ch <- []registry.Instance{
+		{ServiceName: "user-service", Addr: "node1:9082"},
+		{ServiceName: "user-service", Addr: "node2:9082"},
+		{ServiceName: "user-service", Addr: "node3:9082"},
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	cache.mu.RLock()
+	peers = cache.peers
+	cache.mu.RUnlock()
+
+	if len(peers) != 3 {
+		t.Fatalf("expected 3 peers after update, got %d: %v", len(peers), peers)
+	}
 }
