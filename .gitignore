@@ -19,6 +19,12 @@ backend/services/user-service/user-service
 backend/services/ws-gateway/ws-gateway
 backend/tools/migrate/migrate
 
+# Workspace-level compiled binaries (go build from backend/)
+backend/auth-service
+backend/community-service
+backend/user-service
+backend/ws-gateway
+
 # --- Go ---
 vendor/
 backend/go.work.sum
