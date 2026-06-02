@@ -7,6 +7,7 @@ import (
 	"log"
 
 	groupcache "github.com/constell/constell/backend/pkg/groupcache"
+	"github.com/constell/constell/backend/pkg/registry"
 )
 
 // ServerCache caches server data partitioned by server_id.
@@ -16,10 +17,9 @@ type ServerCache struct {
 }
 
 // NewServerCache creates a ServerCache backed by the repository.
-func NewServerCache(repo *Repository, peers []string) *ServerCache {
-	c := groupcache.NewCache[string, []byte](
+func NewServerCache(repo *Repository, peers []string, reg registry.Registry, regServiceName string) *ServerCache {
+	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
-		groupcache.WithPeers[string, []byte](peers),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
 			serverID := key[len("server:"):]
 			server, err := repo.GetServer(ctx, serverID)
@@ -28,7 +28,13 @@ func NewServerCache(repo *Repository, peers []string) *ServerCache {
 			}
 			return MarshalServer(server)
 		}),
-	)
+	}
+	if reg != nil {
+		opts = append(opts, groupcache.WithRegistry[string, []byte](reg, regServiceName))
+	} else if len(peers) > 0 {
+		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
+	}
+	c := groupcache.NewCache[string, []byte](opts...)
 	return &ServerCache{cache: c, repo: repo}
 }
 
@@ -66,10 +72,9 @@ type MembersCache struct {
 }
 
 // NewMembersCache creates a MembersCache backed by the repository.
-func NewMembersCache(repo *Repository, peers []string) *MembersCache {
-	c := groupcache.NewCache[string, []byte](
+func NewMembersCache(repo *Repository, peers []string, reg registry.Registry, regServiceName string) *MembersCache {
+	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
-		groupcache.WithPeers[string, []byte](peers),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
 			serverID := key[len("members:"):]
 			members, _, err := repo.ListMembersByServer(ctx, serverID, 1000, "")
@@ -78,7 +83,13 @@ func NewMembersCache(repo *Repository, peers []string) *MembersCache {
 			}
 			return MarshalMembers(members)
 		}),
-	)
+	}
+	if reg != nil {
+		opts = append(opts, groupcache.WithRegistry[string, []byte](reg, regServiceName))
+	} else if len(peers) > 0 {
+		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
+	}
+	c := groupcache.NewCache[string, []byte](opts...)
 	return &MembersCache{cache: c, repo: repo}
 }
 
@@ -105,10 +116,9 @@ type RolesCache struct {
 }
 
 // NewRolesCache creates a RolesCache backed by the repository.
-func NewRolesCache(repo *Repository, peers []string) *RolesCache {
-	c := groupcache.NewCache[string, []byte](
+func NewRolesCache(repo *Repository, peers []string, reg registry.Registry, regServiceName string) *RolesCache {
+	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
-		groupcache.WithPeers[string, []byte](peers),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
 			serverID := key[len("roles:"):]
 			roles, err := repo.ListRolesByServer(ctx, serverID)
@@ -117,7 +127,13 @@ func NewRolesCache(repo *Repository, peers []string) *RolesCache {
 			}
 			return MarshalRoles(roles)
 		}),
-	)
+	}
+	if reg != nil {
+		opts = append(opts, groupcache.WithRegistry[string, []byte](reg, regServiceName))
+	} else if len(peers) > 0 {
+		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
+	}
+	c := groupcache.NewCache[string, []byte](opts...)
 	return &RolesCache{cache: c, repo: repo}
 }
 

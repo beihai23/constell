@@ -2,94 +2,146 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
+	"connectrpc.com/otelconnect"
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/constell/constell/backend/pkg/config"
+	"github.com/constell/constell/backend/pkg/health"
+	"github.com/constell/constell/backend/pkg/logging"
+	"github.com/constell/constell/backend/pkg/metrics"
 	"github.com/constell/constell/backend/pkg/middleware"
+	pkgotel "github.com/constell/constell/backend/pkg/otel"
 	"github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
+	"github.com/constell/constell/backend/pkg/registry"
 )
 
-func main() {
-	databaseURL := envOrDefault("DATABASE_URL",
-		"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable")
-	redisURL := envOrDefault("REDIS_URL", "localhost:6379")
-	jwtSecret := envOrDefault("JWT_SECRET", "dev-secret-change-me")
-	peerAddrsStr := envOrDefault("GROUPCACHE_PEERS", "")
-	port := envOrDefault("PORT", "9083")
+type Config struct {
+	Port      string `env:"PORT" default:"9083"`
+	DBUrl     string `env:"DATABASE_URL" default:"postgres://constell:constell_dev@localhost:5432/constell?sslmode=disable"`
+	RedisURL  string `env:"REDIS_URL" default:"localhost:6379"`
+	JWTSecret string `env:"JWT_SECRET" default:"dev-secret-change-me"`
+	Env       string `env:"ENV" default:"dev"`
 
-	var peerAddrs []string
-	if peerAddrsStr != "" {
-		peerAddrs = strings.Split(peerAddrsStr, ",")
+	RegistryType    string   `env:"REGISTRY_TYPE" default:"static"`
+	ServicesCfgPath string   `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
+	Peers           []string `env:"GROUPCACHE_PEERS"`
+
+	OTelEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:"http://localhost:5080/api/default/v1/otlp"`
+	OTelInsecure string `env:"OTEL_EXPORTER_OTLP_INSECURE" default:"true"`
+}
+
+func main() {
+	var cfg Config
+	config.NewLoader("").MustLoad(&cfg)
+
+	shutdown, err := pkgotel.Init(context.Background(), pkgotel.Config{
+		ServiceName: "community-service",
+		Environment: cfg.Env,
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure == "true",
+	})
+	if err != nil {
+		slog.Error("otel init", "error", err)
+	} else {
+		defer pkgotel.ShutdownWithTimeout(shutdown, 5*time.Second)
 	}
 
-	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	logger := logging.Init("community-service", cfg.Env)
+	slog.SetDefault(logger)
+
+	poolCfg, err := pgxpool.ParseConfig(cfg.DBUrl)
 	if err != nil {
-		log.Fatalf("parse database URL: %v", err)
+		slog.Error("parse database URL", "error", err)
+		os.Exit(1)
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
-		log.Fatalf("create pool: %v", err)
+		slog.Error("create pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := pool.Ping(pingCtx); err != nil {
-		log.Fatalf("ping postgres: %v", err)
+		slog.Error("ping postgres", "error", err)
+		os.Exit(1)
 	}
-	log.Println("connected to postgres")
+	slog.Info("connected to postgres")
 
-	rdb := goredis.NewClient(&goredis.Options{Addr: redisURL})
+	rdb := goredis.NewClient(&goredis.Options{Addr: cfg.RedisURL})
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
-		log.Fatalf("ping redis: %v", err)
+		slog.Error("ping redis", "error", err)
+		os.Exit(1)
 	}
-	log.Println("connected to redis")
+	slog.Info("connected to redis")
+
+	// Init Registry (optional, for groupcache peer discovery)
+	var reg registry.Registry
+	if cfg.RegistryType == "static" && cfg.ServicesCfgPath != "" {
+		var err error
+		reg, err = registry.NewStaticRegistry(registry.StaticConfig{
+			ConfigPath: cfg.ServicesCfgPath,
+		})
+		if err != nil {
+			slog.Warn("registry init failed, using env peers", "error", err)
+		}
+	}
+
+	hc := health.NewChecker()
+	hc.RegisterCheck("postgres", func(ctx context.Context) error { return pool.Ping(ctx) })
+	hc.RegisterCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
+
+	otelInterceptor, err := otelconnect.NewInterceptor()
+	if err != nil {
+		slog.Error("create otel interceptor", "error", err)
+		os.Exit(1)
+	}
 
 	repo := NewRepository(pool)
-	serverCache := NewServerCache(repo, peerAddrs)
-	membersCache := NewMembersCache(repo, peerAddrs)
-	rolesCache := NewRolesCache(repo, peerAddrs)
+	serverCache := NewServerCache(repo, cfg.Peers, reg, "community-service")
+	membersCache := NewMembersCache(repo, cfg.Peers, reg, "community-service")
+	rolesCache := NewRolesCache(repo, cfg.Peers, reg, "community-service")
 	communityService := NewCommunityService(repo, serverCache, membersCache, rolesCache)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", hc.HealthzHandler())
+	mux.HandleFunc("/readyz", hc.ReadyHandler())
 	mux.Handle(communityv1connect.NewCommunityServiceHandler(
 		communityService,
-		connect.WithInterceptors(middleware.NewAuthInterceptor(jwtSecret)),
+		connect.WithInterceptors(
+			otelInterceptor,
+			metrics.ConnectRPCInterceptor(),
+			middleware.NewAuthInterceptor(cfg.JWTSecret),
+		),
 	))
 
-	server := &http.Server{Addr: ":" + port, Handler: mux}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: mux}
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		log.Println("shutting down...")
-		shutdownCtx, shutdownCancel := context.WithTimeout(
-			context.Background(), 10*time.Second)
+		slog.Info("shutting down...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server shutdown error: %v", err)
+			slog.Error("server shutdown", "error", err)
 		}
 	}()
 
-	log.Printf("community-service listening on :%s", port)
+	slog.Info("community-service listening", "port", cfg.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
+		slog.Error("server error", "error", err)
+		os.Exit(1)
 	}
-}
-
-func envOrDefault(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
 }
