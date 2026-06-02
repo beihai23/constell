@@ -3,15 +3,21 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/constell/constell/backend/pkg/config"
+	"github.com/constell/constell/backend/pkg/health"
+	"github.com/constell/constell/backend/pkg/logging"
 	pkgnats "github.com/constell/constell/backend/pkg/nats"
+	pkgotel "github.com/constell/constell/backend/pkg/otel"
 	pkgredis "github.com/constell/constell/backend/pkg/redis"
+	"github.com/constell/constell/backend/pkg/registry"
+
 	userv1 "github.com/constell/constell/backend/pkg/proto/user/v1"
 	userv1connect "github.com/constell/constell/backend/pkg/proto/user/v1/userv1connect"
 	communityv1 "github.com/constell/constell/backend/pkg/proto/community/v1"
@@ -21,77 +27,156 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// Config holds the ws-gateway configuration, populated from environment variables.
+type Config struct {
+	GatewayID        string `env:"GATEWAY_ID" default:"gw-001"`
+	JWTSecret        string `env:"JWT_SECRET" default:"constell-dev-secret"`
+	ListenAddr       string `env:"LISTEN_ADDR" default:":8081"`
+	RedisAddr        string `env:"REDIS_ADDR" default:"localhost:6379"`
+	NatsURL          string `env:"NATS_URL" default:"nats://localhost:4222"`
+	UserSvcAddr      string `env:"USER_SERVICE_ADDR" default:"http://localhost:9082"`
+	CommunitySvcAddr string `env:"COMMUNITY_SERVICE_ADDR" default:"http://localhost:9083"`
+	Env              string `env:"ENV" default:"dev"`
+
+	RegistryType    string `env:"REGISTRY_TYPE" default:"static"`
+	ServicesCfgPath string `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
+
+	OTelEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:"http://localhost:5080/api/default/v1/otlp"`
+	OTelInsecure string `env:"OTEL_EXPORTER_OTLP_INSECURE" default:"true"`
+}
+
 func main() {
-	gatewayID := envOr("GATEWAY_ID", "gw-001")
-	jwtSecret := envOr("JWT_SECRET", "constell-dev-secret")
-	listenAddr := envOr("LISTEN_ADDR", ":8081")
-	redisAddr := envOr("REDIS_ADDR", "localhost:6379")
-	natsURL := envOr("NATS_URL", "nats://localhost:4222")
-	userSvcAddr := envOr("USER_SERVICE_ADDR", "http://localhost:9082")
-	communitySvcAddr := envOr("COMMUNITY_SERVICE_ADDR", "http://localhost:9083")
+	// 1. Load config
+	var cfg Config
+	config.NewLoader("").MustLoad(&cfg)
+
+	// 2. Init OTel
+	shutdown, err := pkgotel.Init(context.Background(), pkgotel.Config{
+		ServiceName: "ws-gateway",
+		Environment: cfg.Env,
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure == "true",
+	})
+	if err != nil {
+		slog.Error("otel init", "error", err)
+	} else {
+		defer pkgotel.ShutdownWithTimeout(shutdown, 5*time.Second)
+	}
+
+	// 3. Init logging
+	logger := logging.Init("ws-gateway", cfg.Env)
+	slog.SetDefault(logger)
 
 	ctx := context.Background()
 
-	redisClient, err := pkgredis.New(ctx, pkgredis.Config{Addr: redisAddr})
+	// 4. Init Registry (optional)
+	var reg registry.Registry
+	if cfg.RegistryType == "static" {
+		staticReg, err := registry.NewStaticRegistry(registry.StaticConfig{
+			ConfigPath: cfg.ServicesCfgPath,
+		})
+		if err != nil {
+			slog.Warn("static registry unavailable, using env var URLs", "error", err)
+		} else {
+			reg = staticReg
+		}
+	}
+
+	// 5. Discover service addresses (with fallback to env vars)
+	userSvcAddr := cfg.UserSvcAddr
+	communitySvcAddr := cfg.CommunitySvcAddr
+
+	if reg != nil {
+		if instances, err := reg.Discover(ctx, "user-service"); err == nil && len(instances) > 0 {
+			userSvcAddr = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(ctx, "community-service"); err == nil && len(instances) > 0 {
+			communitySvcAddr = "http://" + instances[0].Addr
+		}
+	}
+
+	slog.Info("service discovery",
+		"user", userSvcAddr,
+		"community", communitySvcAddr,
+	)
+
+	// 6. Connect to infrastructure
+	redisClient, err := pkgredis.New(ctx, pkgredis.Config{Addr: cfg.RedisAddr})
 	if err != nil {
-		log.Fatalf("failed to connect to redis: %v", err)
+		slog.Error("failed to connect to redis", "error", err)
+		os.Exit(1)
 	}
 	defer redisClient.Close()
-	log.Printf("connected to redis at %s", redisAddr)
+	slog.Info("connected to redis", "addr", cfg.RedisAddr)
 
-	natsResult, err := pkgnats.New(pkgnats.Config{URL: natsURL})
+	natsResult, err := pkgnats.New(pkgnats.Config{URL: cfg.NatsURL})
 	if err != nil {
-		log.Fatalf("failed to connect to nats: %v", err)
+		slog.Error("failed to connect to nats", "error", err)
+		os.Exit(1)
 	}
 	defer natsResult.Conn.Close()
-	log.Printf("connected to nats at %s", natsURL)
+	slog.Info("connected to nats", "url", cfg.NatsURL)
 
+	// 7. Create Connect-RPC clients
 	userSvcClient := userv1connect.NewUserServiceClient(http.DefaultClient, userSvcAddr)
 	communitySvcClient := communityv1connect.NewCommunityServiceClient(http.DefaultClient, communitySvcAddr)
 
 	userAdapter := &connectUserSvcClient{client: userSvcClient}
 	communityAdapter := &connectCommunitySvcClient{client: communitySvcClient}
 
-	cfg := ServerConfig{
-		GatewayID:         gatewayID,
-		JWTSecret:         jwtSecret,
+	// 8. Health checks
+	hc := health.NewChecker()
+	hc.RegisterCheck("redis", func(ctx context.Context) error {
+		return redisClient.Ping(ctx).Err()
+	})
+	hc.RegisterCheck("nats", func(_ context.Context) error {
+		if !natsResult.Conn.IsConnected() {
+			return fmt.Errorf("nats not connected")
+		}
+		return nil
+	})
+
+	// 9. Create and wire up WS server
+	srvCfg := ServerConfig{
+		GatewayID:         cfg.GatewayID,
+		JWTSecret:         cfg.JWTSecret,
 		HeartbeatInterval: 30 * time.Second,
 		RegistryTTL:       5 * time.Minute,
 	}
 
-	srv := NewServer(cfg, redisClient, natsResult.Conn)
-	srv.SetRegistry(NewRegistry(redisClient, cfg.RegistryTTL))
+	srv := NewServer(srvCfg, redisClient, natsResult.Conn)
+	srv.SetRegistry(NewRegistry(redisClient, srvCfg.RegistryTTL))
 	srv.SetRouter(NewRouter(userAdapter, communityAdapter, srv.ConnMgr))
 	srv.SetPushSubscriber(NewPushSubscriber(natsResult.Conn, srv.ConnMgr))
 
-	if err := srv.pushSub.Subscribe(gatewayID); err != nil {
-		log.Fatalf("failed to subscribe to push topic: %v", err)
+	if err := srv.pushSub.Subscribe(cfg.GatewayID); err != nil {
+		slog.Error("failed to subscribe to push topic", "error", err)
+		os.Exit(1)
 	}
 
+	// 10. Wire up HTTP routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.HandleUpgrade)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok","connections":%d,"gateway_id":"%s"}`,
-			srv.ConnectionCount(), gatewayID)
-	})
+	mux.HandleFunc("/healthz", hc.HealthzHandler())
+	mux.HandleFunc("/readyz", hc.ReadyHandler())
 
 	httpServer := &http.Server{
-		Addr:    listenAddr,
+		Addr:    cfg.ListenAddr,
 		Handler: mux,
 	}
 
+	// 11. Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-sigCh
-		log.Printf("received signal %v, shutting down...", sig)
+		slog.Info("shutting down ws-gateway...", "signal", sig)
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			log.Printf("http server shutdown error: %v", err)
+			slog.Error("http server shutdown error", "error", err)
 		}
 
 		srv.pushSub.Unsubscribe()
@@ -99,19 +184,13 @@ func main() {
 		redisClient.Close()
 	}()
 
-	log.Printf("WS Gateway starting on %s (gateway_id=%s)", listenAddr, gatewayID)
+	slog.Info("ws-gateway starting", "addr", cfg.ListenAddr, "gateway_id", cfg.GatewayID)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("http server error: %v", err)
+		slog.Error("http server error", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("WS Gateway stopped")
-}
-
-func envOr(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return fallback
+	slog.Info("ws-gateway stopped")
 }
 
 type connectUserSvcClient struct {
@@ -157,7 +236,7 @@ func (c *connectCommunitySvcClient) SendMessage(ctx context.Context, senderID, c
 }
 
 var (
-	_ UserSvcClient       = (*connectUserSvcClient)(nil)
-	_ CommunitySvcClient  = (*connectCommunitySvcClient)(nil)
+	_ UserSvcClient      = (*connectUserSvcClient)(nil)
+	_ CommunitySvcClient = (*connectCommunitySvcClient)(nil)
 	_ interface{ Publish(subject string, data []byte) error } = (*nats.Conn)(nil)
 )
