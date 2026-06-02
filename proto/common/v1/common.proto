@@ -26,3 +26,14 @@ message PaginationResponse {
   string next_cursor = 2;
   int32 total_count = 3;
 }
+
+// Attachment represents a file attached to a message.
+message Attachment {
+  string id = 1;
+  string file_id = 2;
+  string filename = 3;
+  string content_type = 4;
+  int64 size = 5;
+  string url = 6;
+  string thumbnail_url = 7;
+}
