@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -9,6 +10,16 @@ import (
 	"github.com/constell/constell/backend/pkg/jwt"
 	"github.com/constell/constell/backend/services/api-gateway/handlers"
 )
+
+// contextKey is an unexported type for context keys defined in this package.
+type contextKey string
+
+const userIDKey contextKey = "constell-user-id"
+
+// contextWithUserID returns a new context with the user ID embedded.
+func contextWithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
 
 // jwtAuthMiddleware validates the JWT token from the Authorization header
 // and stores the user ID in the request context.
@@ -52,17 +63,11 @@ func notImplemented() http.HandlerFunc {
 }
 
 // registerRoutes sets up all REST routes on the chi router.
-func registerRoutes(r chi.Router, clients *Clients, jwtSecret string) {
+func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 	// Create handler instances.
 	authHandler := handlers.NewAuthHandler(clients.Auth)
 	userHandler := handlers.NewUserHandler(clients.User)
 	communityHandler := handlers.NewCommunityHandler(clients.Community)
-
-	// Health check endpoint (no auth required).
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
 
 	// Auth routes -- no JWT auth required.
 	r.Route("/api/v1/auth", func(r chi.Router) {

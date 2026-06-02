@@ -71,11 +71,14 @@ func (h *CommunityHandler) CreateServer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp, err := h.client.CreateServer(r.Context(), connect.NewRequest(&communityv1.CreateServerRequest{
+	cr := connect.NewRequest(&communityv1.CreateServerRequest{
 		Name:        req.Name,
 		Description: req.Description,
 		IconUrl:     req.IconURL,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.CreateServer(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -92,9 +95,12 @@ func (h *CommunityHandler) GetServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.GetServer(r.Context(), connect.NewRequest(&communityv1.GetServerRequest{
+	cr := connect.NewRequest(&communityv1.GetServerRequest{
 		ServerId: serverID,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetServer(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -124,12 +130,15 @@ func (h *CommunityHandler) UpdateServer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp, err := h.client.UpdateServer(r.Context(), connect.NewRequest(&communityv1.UpdateServerRequest{
+	cr := connect.NewRequest(&communityv1.UpdateServerRequest{
 		ServerId:    serverID,
 		Name:        req.Name,
 		Description: req.Description,
 		IconUrl:     req.IconURL,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.UpdateServer(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -211,13 +220,16 @@ func (h *CommunityHandler) CreateChannel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp, err := h.client.CreateChannel(r.Context(), connect.NewRequest(&communityv1.CreateChannelRequest{
+	cr := connect.NewRequest(&communityv1.CreateChannelRequest{
 		ServerId: serverID,
 		Name:     req.Name,
 		Topic:    req.Topic,
 		Type:     channelTypeFromString(req.Type),
 		Position: req.Position,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.CreateChannel(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -237,13 +249,16 @@ func (h *CommunityHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.ListChannels(r.Context(), connect.NewRequest(&communityv1.ListChannelsRequest{
+	cr := connect.NewRequest(&communityv1.ListChannelsRequest{
 		ServerId: serverID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListChannels(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -273,13 +288,16 @@ func (h *CommunityHandler) UpdateChannel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp, err := h.client.UpdateChannel(r.Context(), connect.NewRequest(&communityv1.UpdateChannelRequest{
+	cr := connect.NewRequest(&communityv1.UpdateChannelRequest{
 		ChannelId: channelID,
 		Name:      req.Name,
 		Topic:     req.Topic,
 		Type:      channelTypeFromString(req.Type),
 		Position:  req.Position,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.UpdateChannel(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -337,9 +355,12 @@ func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.JoinServer(r.Context(), connect.NewRequest(&communityv1.JoinServerRequest{
+	cr := connect.NewRequest(&communityv1.JoinServerRequest{
 		ServerId: serverID,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.JoinServer(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -356,9 +377,12 @@ func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp, err := h.client.LeaveServer(r.Context(), connect.NewRequest(&communityv1.LeaveServerRequest{
+	cr := connect.NewRequest(&communityv1.LeaveServerRequest{
 		ServerId: serverID,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.LeaveServer(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -379,13 +403,16 @@ func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.ListMembers(r.Context(), connect.NewRequest(&communityv1.ListMembersRequest{
+	cr := connect.NewRequest(&communityv1.ListMembersRequest{
 		ServerId: serverID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListMembers(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -452,10 +479,13 @@ func (h *CommunityHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.SendMessage(r.Context(), connect.NewRequest(&communityv1.SendMessageRequest{
+	cr := connect.NewRequest(&communityv1.SendMessageRequest{
 		ChannelId: channelID,
 		Content:   req.Content,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.SendMessage(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -475,13 +505,16 @@ func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.GetMessages(r.Context(), connect.NewRequest(&communityv1.GetMessagesRequest{
+	cr := connect.NewRequest(&communityv1.GetMessagesRequest{
 		ChannelId: channelID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetMessages(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return

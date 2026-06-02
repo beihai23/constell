@@ -6,7 +6,60 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+
+	authv1connect "github.com/constell/constell/backend/pkg/proto/auth/v1/authv1connect"
+	userv1connect "github.com/constell/constell/backend/pkg/proto/user/v1/userv1connect"
+	communityv1connect "github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
 )
+
+// Clients holds the Connect-RPC clients for all backend services.
+type Clients struct {
+	Auth      authv1connect.AuthServiceClient
+	User      userv1connect.UserServiceClient
+	Community communityv1connect.CommunityServiceClient
+}
+
+// Config holds service URLs for constructing Clients.
+type clientsConfig struct {
+	AuthServiceURL      string
+	UserServiceURL      string
+	CommunityServiceURL string
+}
+
+// newClients creates Clients from a config with service URLs.
+func newClients(cfg clientsConfig) *Clients {
+	return &Clients{
+		Auth: authv1connect.NewAuthServiceClient(
+			http.DefaultClient,
+			cfg.AuthServiceURL,
+		),
+		User: userv1connect.NewUserServiceClient(
+			http.DefaultClient,
+			cfg.UserServiceURL,
+		),
+		Community: communityv1connect.NewCommunityServiceClient(
+			http.DefaultClient,
+			cfg.CommunityServiceURL,
+		),
+	}
+}
+
+// NewClientsFromURLs creates Clients from explicit service URLs.
+func NewClientsFromURLs(authURL, userURL, communityURL string) *Clients {
+	return newClients(clientsConfig{
+		AuthServiceURL:      authURL,
+		UserServiceURL:      userURL,
+		CommunityServiceURL: communityURL,
+	})
+}
+
+// forwardAuth sets the Authorization header on a Connect-RPC request
+// from the incoming HTTP request, so backend services can validate the token.
+func forwardAuth(r *http.Request, req connect.AnyRequest) {
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		req.Header().Set("Authorization", auth)
+	}
+}
 
 // writeJSON writes a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
