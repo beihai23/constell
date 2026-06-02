@@ -37,6 +37,12 @@ services:
     addr: :9082
   community_service:
     addr: :9083
+  file_service:
+    addr: :9084
+  search_service:
+    addr: :9085
+  notify_service:
+    addr: :9086
 
 otel:
   endpoint: "http://localhost:5080/api/default/v1/otlp"

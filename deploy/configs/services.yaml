@@ -24,3 +24,15 @@ services:
     instances:
       - addr: "community-service-1:9083"
       - addr: "community-service-2:9083"
+
+  file-service:
+    instances:
+      - addr: "file-service:9084"
+
+  search-service:
+    instances:
+      - addr: "search-service:9085"
+
+  notify-service:
+    instances:
+      - addr: "notify-service:9086"

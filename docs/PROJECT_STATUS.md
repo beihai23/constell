@@ -27,7 +27,7 @@ Constell（星座）是一个开源社群型 IM 系统，类似 Discord。后端
 | Plan 1: 基础设施 + 核心服务 | `plans/2026-05-30-plan1-foundation-core.md` | ✅ 已完成 | 全部 22 Tasks 完成，集成测试 + Docker Compose 全服务配置就绪 |
 | Plan 2: 服务治理 | `plans/2026-06-02-plan2-governance.md` | ✅ 已完成 | 全部 16 Tasks 完成：服务发现 + 配置管理 + 健康检查 + 可观测性 (OTel/OpenObserve) |
 | Plan 3: WS Gateway | `plans/2026-05-30-plan2-ws-gateway.md` | ✅ 已完成 | 全部 17 Tasks 已在 Plan 1 + Plan 2 阶段实现，含 proto/protocol/auth/connmgr/registry/router/push/heartbeat/server，测试通过 |
-| Plan 4: File + Search + Notify | 概要在 plans-overview 中 | ⏳ 待规划 | |
+| Plan 4: File + Search + Notify | 概要在 plans-overview 中 | 📋 计划就绪 | |
 | Plan 5: Web 客户端 | 概要在 plans-overview 中 | ⏳ 待规划 | |
 | Plan 6: SDK | 概要在 plans-overview 中 | ⏳ 待规划 | |
 

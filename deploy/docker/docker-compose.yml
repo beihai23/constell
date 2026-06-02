@@ -132,6 +132,7 @@ services:
       DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
       REDIS_URL: "redis:6379"
       JWT_SECRET: "dev-secret-change-me"
+      NATS_URL: "nats://nats:4222"
       REGISTRY_TYPE: "static"
       SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
@@ -160,6 +161,7 @@ services:
       DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
       REDIS_URL: "redis:6379"
       JWT_SECRET: "dev-secret-change-me"
+      NATS_URL: "nats://nats:4222"
       REGISTRY_TYPE: "static"
       SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
@@ -188,6 +190,9 @@ services:
       AUTH_SERVICE_URL: "http://auth-service:9081"
       USER_SERVICE_URL: "http://user-service:9082"
       COMMUNITY_SERVICE_URL: "http://community-service:9083"
+      FILE_SERVICE_URL: "http://file-service:9084"
+      SEARCH_SERVICE_URL: "http://search-service:9085"
+      NOTIFY_SERVICE_URL: "http://notify-service:9086"
       JWT_SECRET: "dev-secret-change-me"
       REGISTRY_TYPE: "static"
       SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
@@ -200,6 +205,9 @@ services:
       - auth-service
       - user-service
       - community-service
+      - file-service
+      - search-service
+      - notify-service
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
       interval: 10s
@@ -273,6 +281,93 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # ============================================
+  # New Services (Plan 4)
+  # ============================================
+
+  file-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/file-service/Dockerfile
+    container_name: constell-file-service
+    environment:
+      PORT: "9084"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      JWT_SECRET: "dev-secret-change-me"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "constell"
+      MINIO_USE_SSL: "false"
+      MINIO_BASE_URL: "http://minio:9000"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
+    ports:
+      - "9084:9084"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9084/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  search-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/search-service/Dockerfile
+    container_name: constell-search-service
+    environment:
+      PORT: "9085"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      JWT_SECRET: "dev-secret-change-me"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
+    ports:
+      - "9085:9085"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9085/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  notify-service:
+    build:
+      context: ../../
+      dockerfile: backend/services/notify-service/Dockerfile
+    container_name: constell-notify-service
+    environment:
+      PORT: "9086"
+      DATABASE_URL: "postgres://constell:constell_dev@postgres:5432/constell?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      NATS_URL: "nats://nats:4222"
+      JWT_SECRET: "dev-secret-change-me"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
+    ports:
+      - "9086:9086"
+    volumes:
+      - ../../deploy/configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9086/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:
