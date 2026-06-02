@@ -9,6 +9,7 @@
 package gatewayv1
 
 import (
+	v1 "github.com/constell/constell/backend/pkg/proto/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -94,6 +95,7 @@ const (
 	ServerEventType_SERVER_EVENT_TYPE_ERROR                    ServerEventType = 5
 	ServerEventType_SERVER_EVENT_TYPE_HEARTBEAT_ACK            ServerEventType = 6
 	ServerEventType_SERVER_EVENT_TYPE_ACK                      ServerEventType = 7
+	ServerEventType_SERVER_EVENT_TYPE_NOTIFICATION             ServerEventType = 8
 )
 
 // Enum value maps for ServerEventType.
@@ -107,6 +109,7 @@ var (
 		5: "SERVER_EVENT_TYPE_ERROR",
 		6: "SERVER_EVENT_TYPE_HEARTBEAT_ACK",
 		7: "SERVER_EVENT_TYPE_ACK",
+		8: "SERVER_EVENT_TYPE_NOTIFICATION",
 	}
 	ServerEventType_value = map[string]int32{
 		"SERVER_EVENT_TYPE_UNSPECIFIED":              0,
@@ -117,6 +120,7 @@ var (
 		"SERVER_EVENT_TYPE_ERROR":                    5,
 		"SERVER_EVENT_TYPE_HEARTBEAT_ACK":            6,
 		"SERVER_EVENT_TYPE_ACK":                      7,
+		"SERVER_EVENT_TYPE_NOTIFICATION":             8,
 	}
 )
 
@@ -238,6 +242,7 @@ type SendDMRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ReceiverId    string                 `protobuf:"bytes,1,opt,name=receiver_id,json=receiverId,proto3" json:"receiver_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	FileIds       []string               `protobuf:"bytes,3,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -286,11 +291,19 @@ func (x *SendDMRequest) GetContent() string {
 	return ""
 }
 
+func (x *SendDMRequest) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
+}
+
 // SendChannelMessageRequest asks the gateway to send a message to a channel.
 type SendChannelMessageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	FileIds       []string               `protobuf:"bytes,3,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -337,6 +350,13 @@ func (x *SendChannelMessageRequest) GetContent() string {
 		return x.Content
 	}
 	return ""
+}
+
+func (x *SendChannelMessageRequest) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
 }
 
 // SubscribeChannelRequest asks the gateway to subscribe the user to a channel's events.
@@ -441,6 +461,7 @@ type ServerEvent struct {
 	UserOnlineEvent     *UserOnlineEvent             `protobuf:"bytes,12,opt,name=user_online_event,json=userOnlineEvent,proto3" json:"user_online_event,omitempty"`
 	UserOfflineEvent    *UserOfflineEvent            `protobuf:"bytes,13,opt,name=user_offline_event,json=userOfflineEvent,proto3" json:"user_offline_event,omitempty"`
 	ErrorEvent          *ErrorEvent                  `protobuf:"bytes,14,opt,name=error_event,json=errorEvent,proto3" json:"error_event,omitempty"`
+	NotificationEvent   *NotificationEvent           `protobuf:"bytes,15,opt,name=notification_event,json=notificationEvent,proto3" json:"notification_event,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -524,6 +545,13 @@ func (x *ServerEvent) GetErrorEvent() *ErrorEvent {
 	return nil
 }
 
+func (x *ServerEvent) GetNotificationEvent() *NotificationEvent {
+	if x != nil {
+		return x.NotificationEvent
+	}
+	return nil
+}
+
 // AckEvent is sent to confirm a client request was processed.
 type AckEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -577,6 +605,7 @@ type DMReceivedEvent struct {
 	SenderNickname string                 `protobuf:"bytes,3,opt,name=sender_nickname,json=senderNickname,proto3" json:"sender_nickname,omitempty"`
 	Content        string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Attachments    []*v1.Attachment       `protobuf:"bytes,6,rep,name=attachments,proto3" json:"attachments,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -646,6 +675,13 @@ func (x *DMReceivedEvent) GetCreatedAt() int64 {
 	return 0
 }
 
+func (x *DMReceivedEvent) GetAttachments() []*v1.Attachment {
+	if x != nil {
+		return x.Attachments
+	}
+	return nil
+}
+
 // ChannelMessageReceivedEvent is pushed when a new message appears in a subscribed channel.
 type ChannelMessageReceivedEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -655,6 +691,7 @@ type ChannelMessageReceivedEvent struct {
 	SenderNickname string                 `protobuf:"bytes,4,opt,name=sender_nickname,json=senderNickname,proto3" json:"sender_nickname,omitempty"`
 	Content        string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Attachments    []*v1.Attachment       `protobuf:"bytes,7,rep,name=attachments,proto3" json:"attachments,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -729,6 +766,13 @@ func (x *ChannelMessageReceivedEvent) GetCreatedAt() int64 {
 		return x.CreatedAt
 	}
 	return 0
+}
+
+func (x *ChannelMessageReceivedEvent) GetAttachments() []*v1.Attachment {
+	if x != nil {
+		return x.Attachments
+	}
+	return nil
 }
 
 // UserOnlineEvent is pushed when a user comes online.
@@ -874,12 +918,104 @@ func (x *ErrorEvent) GetMessage() string {
 	return ""
 }
 
+type NotificationEvent struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	NotificationType string                 `protobuf:"bytes,1,opt,name=notification_type,json=notificationType,proto3" json:"notification_type,omitempty"`
+	SourceId         string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	ServerId         string                 `protobuf:"bytes,3,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	SenderId         string                 `protobuf:"bytes,4,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	SenderNickname   string                 `protobuf:"bytes,5,opt,name=sender_nickname,json=senderNickname,proto3" json:"sender_nickname,omitempty"`
+	Preview          string                 `protobuf:"bytes,6,opt,name=preview,proto3" json:"preview,omitempty"`
+	CreatedAt        int64                  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *NotificationEvent) Reset() {
+	*x = NotificationEvent{}
+	mi := &file_gateway_v1_gateway_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationEvent) ProtoMessage() {}
+
+func (x *NotificationEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_gateway_v1_gateway_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationEvent.ProtoReflect.Descriptor instead.
+func (*NotificationEvent) Descriptor() ([]byte, []int) {
+	return file_gateway_v1_gateway_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *NotificationEvent) GetNotificationType() string {
+	if x != nil {
+		return x.NotificationType
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetSenderId() string {
+	if x != nil {
+		return x.SenderId
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetSenderNickname() string {
+	if x != nil {
+		return x.SenderNickname
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetPreview() string {
+	if x != nil {
+		return x.Preview
+	}
+	return ""
+}
+
+func (x *NotificationEvent) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
 var File_gateway_v1_gateway_proto protoreflect.FileDescriptor
 
 const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\n" +
 	"\x18gateway/v1/gateway.proto\x12\n" +
-	"gateway.v1\"\xd4\x03\n" +
+	"gateway.v1\x1a\x16common/v1/common.proto\"\xd4\x03\n" +
 	"\rClientMessage\x121\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1d.gateway.v1.ClientMessageTypeR\x04type\x12\x1d\n" +
 	"\n" +
@@ -888,21 +1024,23 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	" \x01(\v2\x19.gateway.v1.SendDMRequestR\rsendDmRequest\x12f\n" +
 	"\x1csend_channel_message_request\x18\v \x01(\v2%.gateway.v1.SendChannelMessageRequestR\x19sendChannelMessageRequest\x12_\n" +
 	"\x19subscribe_channel_request\x18\f \x01(\v2#.gateway.v1.SubscribeChannelRequestR\x17subscribeChannelRequest\x12e\n" +
-	"\x1bunsubscribe_channel_request\x18\r \x01(\v2%.gateway.v1.UnsubscribeChannelRequestR\x19unsubscribeChannelRequest\"J\n" +
+	"\x1bunsubscribe_channel_request\x18\r \x01(\v2%.gateway.v1.UnsubscribeChannelRequestR\x19unsubscribeChannelRequest\"e\n" +
 	"\rSendDMRequest\x12\x1f\n" +
 	"\vreceiver_id\x18\x01 \x01(\tR\n" +
 	"receiverId\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"T\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
+	"\bfile_ids\x18\x03 \x03(\tR\afileIds\"o\n" +
 	"\x19SendChannelMessageRequest\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"8\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
+	"\bfile_ids\x18\x03 \x03(\tR\afileIds\"8\n" +
 	"\x17SubscribeChannelRequest\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\":\n" +
 	"\x19UnsubscribeChannelRequest\x12\x1d\n" +
 	"\n" +
-	"channel_id\x18\x01 \x01(\tR\tchannelId\"\xd1\x03\n" +
+	"channel_id\x18\x01 \x01(\tR\tchannelId\"\x9f\x04\n" +
 	"\vServerEvent\x12/\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1b.gateway.v1.ServerEventTypeR\x04type\x12\x1d\n" +
 	"\n" +
@@ -913,10 +1051,11 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x11user_online_event\x18\f \x01(\v2\x1b.gateway.v1.UserOnlineEventR\x0fuserOnlineEvent\x12J\n" +
 	"\x12user_offline_event\x18\r \x01(\v2\x1c.gateway.v1.UserOfflineEventR\x10userOfflineEvent\x127\n" +
 	"\verror_event\x18\x0e \x01(\v2\x16.gateway.v1.ErrorEventR\n" +
-	"errorEvent\")\n" +
+	"errorEvent\x12L\n" +
+	"\x12notification_event\x18\x0f \x01(\v2\x1d.gateway.v1.NotificationEventR\x11notificationEvent\")\n" +
 	"\bAckEvent\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xaf\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xe8\x01\n" +
 	"\x0fDMReceivedEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x1b\n" +
@@ -924,7 +1063,8 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x0fsender_nickname\x18\x03 \x01(\tR\x0esenderNickname\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\x03R\tcreatedAt\"\xda\x01\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x127\n" +
+	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\"\x93\x02\n" +
 	"\x1bChannelMessageReceivedEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x1d\n" +
@@ -934,7 +1074,8 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x0fsender_nickname\x18\x04 \x01(\tR\x0esenderNickname\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\x03R\tcreatedAt\"*\n" +
+	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x127\n" +
+	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\"*\n" +
 	"\x0fUserOnlineEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"+\n" +
 	"\x10UserOfflineEvent\x12\x17\n" +
@@ -942,14 +1083,23 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\n" +
 	"ErrorEvent\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*\x82\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xf9\x01\n" +
+	"\x11NotificationEvent\x12+\n" +
+	"\x11notification_type\x18\x01 \x01(\tR\x10notificationType\x12\x1b\n" +
+	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x1b\n" +
+	"\tserver_id\x18\x03 \x01(\tR\bserverId\x12\x1b\n" +
+	"\tsender_id\x18\x04 \x01(\tR\bsenderId\x12'\n" +
+	"\x0fsender_nickname\x18\x05 \x01(\tR\x0esenderNickname\x12\x18\n" +
+	"\apreview\x18\x06 \x01(\tR\apreview\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\x03R\tcreatedAt*\x82\x02\n" +
 	"\x11ClientMessageType\x12#\n" +
 	"\x1fCLIENT_MESSAGE_TYPE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bCLIENT_MESSAGE_TYPE_SEND_DM\x10\x01\x12,\n" +
 	"(CLIENT_MESSAGE_TYPE_SEND_CHANNEL_MESSAGE\x10\x02\x12)\n" +
 	"%CLIENT_MESSAGE_TYPE_SUBSCRIBE_CHANNEL\x10\x03\x12+\n" +
 	"'CLIENT_MESSAGE_TYPE_UNSUBSCRIBE_CHANNEL\x10\x04\x12!\n" +
-	"\x1dCLIENT_MESSAGE_TYPE_HEARTBEAT\x10\x05*\xab\x02\n" +
+	"\x1dCLIENT_MESSAGE_TYPE_HEARTBEAT\x10\x05*\xcf\x02\n" +
 	"\x0fServerEventType\x12!\n" +
 	"\x1dSERVER_EVENT_TYPE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dSERVER_EVENT_TYPE_DM_RECEIVED\x10\x01\x12.\n" +
@@ -958,7 +1108,8 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x1eSERVER_EVENT_TYPE_USER_OFFLINE\x10\x04\x12\x1b\n" +
 	"\x17SERVER_EVENT_TYPE_ERROR\x10\x05\x12#\n" +
 	"\x1fSERVER_EVENT_TYPE_HEARTBEAT_ACK\x10\x06\x12\x19\n" +
-	"\x15SERVER_EVENT_TYPE_ACK\x10\aB\xac\x01\n" +
+	"\x15SERVER_EVENT_TYPE_ACK\x10\a\x12\"\n" +
+	"\x1eSERVER_EVENT_TYPE_NOTIFICATION\x10\bB\xac\x01\n" +
 	"\x0ecom.gateway.v1B\fGatewayProtoP\x01ZCgithub.com/constell/constell/backend/pkg/proto/gateway/v1;gatewayv1\xa2\x02\x03GXX\xaa\x02\n" +
 	"Gateway.V1\xca\x02\n" +
 	"Gateway\\V1\xe2\x02\x16Gateway\\V1\\GPBMetadata\xea\x02\vGateway::V1b\x06proto3"
@@ -976,7 +1127,7 @@ func file_gateway_v1_gateway_proto_rawDescGZIP() []byte {
 }
 
 var file_gateway_v1_gateway_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_gateway_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_gateway_v1_gateway_proto_goTypes = []any{
 	(ClientMessageType)(0),              // 0: gateway.v1.ClientMessageType
 	(ServerEventType)(0),                // 1: gateway.v1.ServerEventType
@@ -992,6 +1143,8 @@ var file_gateway_v1_gateway_proto_goTypes = []any{
 	(*UserOnlineEvent)(nil),             // 11: gateway.v1.UserOnlineEvent
 	(*UserOfflineEvent)(nil),            // 12: gateway.v1.UserOfflineEvent
 	(*ErrorEvent)(nil),                  // 13: gateway.v1.ErrorEvent
+	(*NotificationEvent)(nil),           // 14: gateway.v1.NotificationEvent
+	(*v1.Attachment)(nil),               // 15: common.v1.Attachment
 }
 var file_gateway_v1_gateway_proto_depIdxs = []int32{
 	0,  // 0: gateway.v1.ClientMessage.type:type_name -> gateway.v1.ClientMessageType
@@ -1005,11 +1158,14 @@ var file_gateway_v1_gateway_proto_depIdxs = []int32{
 	11, // 8: gateway.v1.ServerEvent.user_online_event:type_name -> gateway.v1.UserOnlineEvent
 	12, // 9: gateway.v1.ServerEvent.user_offline_event:type_name -> gateway.v1.UserOfflineEvent
 	13, // 10: gateway.v1.ServerEvent.error_event:type_name -> gateway.v1.ErrorEvent
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	14, // 11: gateway.v1.ServerEvent.notification_event:type_name -> gateway.v1.NotificationEvent
+	15, // 12: gateway.v1.DMReceivedEvent.attachments:type_name -> common.v1.Attachment
+	15, // 13: gateway.v1.ChannelMessageReceivedEvent.attachments:type_name -> common.v1.Attachment
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_gateway_v1_gateway_proto_init() }
@@ -1023,7 +1179,7 @@ func file_gateway_v1_gateway_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gateway_v1_gateway_proto_rawDesc), len(file_gateway_v1_gateway_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

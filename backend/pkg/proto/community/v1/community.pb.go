@@ -1611,6 +1611,7 @@ type ChannelMessage struct {
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     int64                  `protobuf:"varint,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Attachments   []*v1.Attachment       `protobuf:"bytes,7,rep,name=attachments,proto3" json:"attachments,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1687,10 +1688,18 @@ func (x *ChannelMessage) GetUpdatedAt() int64 {
 	return 0
 }
 
+func (x *ChannelMessage) GetAttachments() []*v1.Attachment {
+	if x != nil {
+		return x.Attachments
+	}
+	return nil
+}
+
 type SendMessageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	FileIds       []string               `protobuf:"bytes,3,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1737,6 +1746,13 @@ func (x *SendMessageRequest) GetContent() string {
 		return x.Content
 	}
 	return ""
+}
+
+func (x *SendMessageRequest) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
 }
 
 type SendMessageResponse struct {
@@ -2000,7 +2016,7 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"\amembers\x18\x01 \x03(\v2\x1a.community.v1.ServerMemberR\amembers\x12=\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
-	"pagination\"\xb4\x01\n" +
+	"pagination\"\xed\x01\n" +
 	"\x0eChannelMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -2010,11 +2026,13 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\"M\n" +
+	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\x127\n" +
+	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\"h\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"M\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
+	"\bfile_ids\x18\x03 \x03(\tR\afileIds\"M\n" +
 	"\x13SendMessageResponse\x126\n" +
 	"\amessage\x18\x01 \x01(\v2\x1c.community.v1.ChannelMessageR\amessage\"q\n" +
 	"\x12GetMessagesRequest\x12\x1d\n" +
@@ -2105,6 +2123,7 @@ var file_community_v1_community_proto_goTypes = []any{
 	(*GetMessagesResponse)(nil),   // 34: community.v1.GetMessagesResponse
 	(*v1.PaginationRequest)(nil),  // 35: common.v1.PaginationRequest
 	(*v1.PaginationResponse)(nil), // 36: common.v1.PaginationResponse
+	(*v1.Attachment)(nil),         // 37: common.v1.Attachment
 }
 var file_community_v1_community_proto_depIdxs = []int32{
 	1,  // 0: community.v1.CreateServerResponse.server:type_name -> community.v1.Server
@@ -2126,45 +2145,46 @@ var file_community_v1_community_proto_depIdxs = []int32{
 	35, // 16: community.v1.ListMembersRequest.pagination:type_name -> common.v1.PaginationRequest
 	23, // 17: community.v1.ListMembersResponse.members:type_name -> community.v1.ServerMember
 	36, // 18: community.v1.ListMembersResponse.pagination:type_name -> common.v1.PaginationResponse
-	30, // 19: community.v1.SendMessageResponse.message:type_name -> community.v1.ChannelMessage
-	35, // 20: community.v1.GetMessagesRequest.pagination:type_name -> common.v1.PaginationRequest
-	30, // 21: community.v1.GetMessagesResponse.messages:type_name -> community.v1.ChannelMessage
-	36, // 22: community.v1.GetMessagesResponse.pagination:type_name -> common.v1.PaginationResponse
-	2,  // 23: community.v1.CommunityService.CreateServer:input_type -> community.v1.CreateServerRequest
-	4,  // 24: community.v1.CommunityService.GetServer:input_type -> community.v1.GetServerRequest
-	6,  // 25: community.v1.CommunityService.UpdateServer:input_type -> community.v1.UpdateServerRequest
-	8,  // 26: community.v1.CommunityService.DeleteServer:input_type -> community.v1.DeleteServerRequest
-	10, // 27: community.v1.CommunityService.ListServers:input_type -> community.v1.ListServersRequest
-	13, // 28: community.v1.CommunityService.CreateChannel:input_type -> community.v1.CreateChannelRequest
-	15, // 29: community.v1.CommunityService.GetChannel:input_type -> community.v1.GetChannelRequest
-	17, // 30: community.v1.CommunityService.UpdateChannel:input_type -> community.v1.UpdateChannelRequest
-	19, // 31: community.v1.CommunityService.DeleteChannel:input_type -> community.v1.DeleteChannelRequest
-	21, // 32: community.v1.CommunityService.ListChannels:input_type -> community.v1.ListChannelsRequest
-	24, // 33: community.v1.CommunityService.JoinServer:input_type -> community.v1.JoinServerRequest
-	26, // 34: community.v1.CommunityService.LeaveServer:input_type -> community.v1.LeaveServerRequest
-	28, // 35: community.v1.CommunityService.ListMembers:input_type -> community.v1.ListMembersRequest
-	31, // 36: community.v1.CommunityService.SendMessage:input_type -> community.v1.SendMessageRequest
-	33, // 37: community.v1.CommunityService.GetMessages:input_type -> community.v1.GetMessagesRequest
-	3,  // 38: community.v1.CommunityService.CreateServer:output_type -> community.v1.CreateServerResponse
-	5,  // 39: community.v1.CommunityService.GetServer:output_type -> community.v1.GetServerResponse
-	7,  // 40: community.v1.CommunityService.UpdateServer:output_type -> community.v1.UpdateServerResponse
-	9,  // 41: community.v1.CommunityService.DeleteServer:output_type -> community.v1.DeleteServerResponse
-	11, // 42: community.v1.CommunityService.ListServers:output_type -> community.v1.ListServersResponse
-	14, // 43: community.v1.CommunityService.CreateChannel:output_type -> community.v1.CreateChannelResponse
-	16, // 44: community.v1.CommunityService.GetChannel:output_type -> community.v1.GetChannelResponse
-	18, // 45: community.v1.CommunityService.UpdateChannel:output_type -> community.v1.UpdateChannelResponse
-	20, // 46: community.v1.CommunityService.DeleteChannel:output_type -> community.v1.DeleteChannelResponse
-	22, // 47: community.v1.CommunityService.ListChannels:output_type -> community.v1.ListChannelsResponse
-	25, // 48: community.v1.CommunityService.JoinServer:output_type -> community.v1.JoinServerResponse
-	27, // 49: community.v1.CommunityService.LeaveServer:output_type -> community.v1.LeaveServerResponse
-	29, // 50: community.v1.CommunityService.ListMembers:output_type -> community.v1.ListMembersResponse
-	32, // 51: community.v1.CommunityService.SendMessage:output_type -> community.v1.SendMessageResponse
-	34, // 52: community.v1.CommunityService.GetMessages:output_type -> community.v1.GetMessagesResponse
-	38, // [38:53] is the sub-list for method output_type
-	23, // [23:38] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	37, // 19: community.v1.ChannelMessage.attachments:type_name -> common.v1.Attachment
+	30, // 20: community.v1.SendMessageResponse.message:type_name -> community.v1.ChannelMessage
+	35, // 21: community.v1.GetMessagesRequest.pagination:type_name -> common.v1.PaginationRequest
+	30, // 22: community.v1.GetMessagesResponse.messages:type_name -> community.v1.ChannelMessage
+	36, // 23: community.v1.GetMessagesResponse.pagination:type_name -> common.v1.PaginationResponse
+	2,  // 24: community.v1.CommunityService.CreateServer:input_type -> community.v1.CreateServerRequest
+	4,  // 25: community.v1.CommunityService.GetServer:input_type -> community.v1.GetServerRequest
+	6,  // 26: community.v1.CommunityService.UpdateServer:input_type -> community.v1.UpdateServerRequest
+	8,  // 27: community.v1.CommunityService.DeleteServer:input_type -> community.v1.DeleteServerRequest
+	10, // 28: community.v1.CommunityService.ListServers:input_type -> community.v1.ListServersRequest
+	13, // 29: community.v1.CommunityService.CreateChannel:input_type -> community.v1.CreateChannelRequest
+	15, // 30: community.v1.CommunityService.GetChannel:input_type -> community.v1.GetChannelRequest
+	17, // 31: community.v1.CommunityService.UpdateChannel:input_type -> community.v1.UpdateChannelRequest
+	19, // 32: community.v1.CommunityService.DeleteChannel:input_type -> community.v1.DeleteChannelRequest
+	21, // 33: community.v1.CommunityService.ListChannels:input_type -> community.v1.ListChannelsRequest
+	24, // 34: community.v1.CommunityService.JoinServer:input_type -> community.v1.JoinServerRequest
+	26, // 35: community.v1.CommunityService.LeaveServer:input_type -> community.v1.LeaveServerRequest
+	28, // 36: community.v1.CommunityService.ListMembers:input_type -> community.v1.ListMembersRequest
+	31, // 37: community.v1.CommunityService.SendMessage:input_type -> community.v1.SendMessageRequest
+	33, // 38: community.v1.CommunityService.GetMessages:input_type -> community.v1.GetMessagesRequest
+	3,  // 39: community.v1.CommunityService.CreateServer:output_type -> community.v1.CreateServerResponse
+	5,  // 40: community.v1.CommunityService.GetServer:output_type -> community.v1.GetServerResponse
+	7,  // 41: community.v1.CommunityService.UpdateServer:output_type -> community.v1.UpdateServerResponse
+	9,  // 42: community.v1.CommunityService.DeleteServer:output_type -> community.v1.DeleteServerResponse
+	11, // 43: community.v1.CommunityService.ListServers:output_type -> community.v1.ListServersResponse
+	14, // 44: community.v1.CommunityService.CreateChannel:output_type -> community.v1.CreateChannelResponse
+	16, // 45: community.v1.CommunityService.GetChannel:output_type -> community.v1.GetChannelResponse
+	18, // 46: community.v1.CommunityService.UpdateChannel:output_type -> community.v1.UpdateChannelResponse
+	20, // 47: community.v1.CommunityService.DeleteChannel:output_type -> community.v1.DeleteChannelResponse
+	22, // 48: community.v1.CommunityService.ListChannels:output_type -> community.v1.ListChannelsResponse
+	25, // 49: community.v1.CommunityService.JoinServer:output_type -> community.v1.JoinServerResponse
+	27, // 50: community.v1.CommunityService.LeaveServer:output_type -> community.v1.LeaveServerResponse
+	29, // 51: community.v1.CommunityService.ListMembers:output_type -> community.v1.ListMembersResponse
+	32, // 52: community.v1.CommunityService.SendMessage:output_type -> community.v1.SendMessageResponse
+	34, // 53: community.v1.CommunityService.GetMessages:output_type -> community.v1.GetMessagesResponse
+	39, // [39:54] is the sub-list for method output_type
+	24, // [24:39] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_community_v1_community_proto_init() }

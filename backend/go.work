@@ -5,6 +5,9 @@ use (
 	./services/api-gateway
 	./services/auth-service
 	./services/community-service
+	./services/file-service
+	./services/notify-service
+	./services/search-service
 	./services/user-service
 	./services/ws-gateway
 	./tests/integration
