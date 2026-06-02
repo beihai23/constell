@@ -30,6 +30,9 @@ type Config struct {
 	AuthServiceURL      string `env:"AUTH_SERVICE_URL" default:"http://auth-service:9081"`
 	UserServiceURL      string `env:"USER_SERVICE_URL" default:"http://user-service:9082"`
 	CommunityServiceURL string `env:"COMMUNITY_SERVICE_URL" default:"http://community-service:9083"`
+	FileServiceURL      string `env:"FILE_SERVICE_URL" default:"http://file-service:9084"`
+	SearchServiceURL    string `env:"SEARCH_SERVICE_URL" default:"http://search-service:9085"`
+	NotifyServiceURL    string `env:"NOTIFY_SERVICE_URL" default:"http://notify-service:9086"`
 
 	RegistryType    string `env:"REGISTRY_TYPE" default:"static"`
 	ServicesCfgPath string `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
@@ -77,6 +80,9 @@ func main() {
 	authURL := cfg.AuthServiceURL
 	userURL := cfg.UserServiceURL
 	communityURL := cfg.CommunityServiceURL
+	fileURL := cfg.FileServiceURL
+	searchURL := cfg.SearchServiceURL
+	notifyURL := cfg.NotifyServiceURL
 
 	if reg != nil {
 		if instances, err := reg.Discover(context.Background(), "auth-service"); err == nil && len(instances) > 0 {
@@ -88,16 +94,28 @@ func main() {
 		if instances, err := reg.Discover(context.Background(), "community-service"); err == nil && len(instances) > 0 {
 			communityURL = "http://" + instances[0].Addr
 		}
+		if instances, err := reg.Discover(context.Background(), "file-service"); err == nil && len(instances) > 0 {
+			fileURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "search-service"); err == nil && len(instances) > 0 {
+			searchURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "notify-service"); err == nil && len(instances) > 0 {
+			notifyURL = "http://" + instances[0].Addr
+		}
 	}
 
 	slog.Info("service discovery",
 		"auth", authURL,
 		"user", userURL,
 		"community", communityURL,
+		"file", fileURL,
+		"search", searchURL,
+		"notify", notifyURL,
 	)
 
 	// 6. Init clients
-	clients := handlers.NewClientsFromURLs(authURL, userURL, communityURL)
+	clients := handlers.NewClientsFromURLs(authURL, userURL, communityURL, fileURL, searchURL, notifyURL)
 
 	// 7. Health checks
 	hc := health.NewChecker()

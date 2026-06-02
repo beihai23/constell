@@ -10,6 +10,9 @@ import (
 	authv1connect "github.com/constell/constell/backend/pkg/proto/auth/v1/authv1connect"
 	userv1connect "github.com/constell/constell/backend/pkg/proto/user/v1/userv1connect"
 	communityv1connect "github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
+	filev1connect "github.com/constell/constell/backend/pkg/proto/file/v1/filev1connect"
+	searchv1connect "github.com/constell/constell/backend/pkg/proto/search/v1/searchv1connect"
+	notifyv1connect "github.com/constell/constell/backend/pkg/proto/notify/v1/notifyv1connect"
 )
 
 // Clients holds the Connect-RPC clients for all backend services.
@@ -17,6 +20,9 @@ type Clients struct {
 	Auth      authv1connect.AuthServiceClient
 	User      userv1connect.UserServiceClient
 	Community communityv1connect.CommunityServiceClient
+	File      filev1connect.FileServiceClient
+	Search    searchv1connect.SearchServiceClient
+	Notify    notifyv1connect.NotifyServiceClient
 }
 
 // Config holds service URLs for constructing Clients.
@@ -24,6 +30,9 @@ type clientsConfig struct {
 	AuthServiceURL      string
 	UserServiceURL      string
 	CommunityServiceURL string
+	FileServiceURL      string
+	SearchServiceURL    string
+	NotifyServiceURL    string
 }
 
 // newClients creates Clients from a config with service URLs.
@@ -41,15 +50,30 @@ func newClients(cfg clientsConfig) *Clients {
 			http.DefaultClient,
 			cfg.CommunityServiceURL,
 		),
+		File: filev1connect.NewFileServiceClient(
+			http.DefaultClient,
+			cfg.FileServiceURL,
+		),
+		Search: searchv1connect.NewSearchServiceClient(
+			http.DefaultClient,
+			cfg.SearchServiceURL,
+		),
+		Notify: notifyv1connect.NewNotifyServiceClient(
+			http.DefaultClient,
+			cfg.NotifyServiceURL,
+		),
 	}
 }
 
 // NewClientsFromURLs creates Clients from explicit service URLs.
-func NewClientsFromURLs(authURL, userURL, communityURL string) *Clients {
+func NewClientsFromURLs(authURL, userURL, communityURL, fileURL, searchURL, notifyURL string) *Clients {
 	return newClients(clientsConfig{
 		AuthServiceURL:      authURL,
 		UserServiceURL:      userURL,
 		CommunityServiceURL: communityURL,
+		FileServiceURL:      fileURL,
+		SearchServiceURL:    searchURL,
+		NotifyServiceURL:    notifyURL,
 	})
 }
 

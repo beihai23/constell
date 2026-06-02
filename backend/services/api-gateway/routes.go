@@ -68,6 +68,9 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 	authHandler := handlers.NewAuthHandler(clients.Auth)
 	userHandler := handlers.NewUserHandler(clients.User)
 	communityHandler := handlers.NewCommunityHandler(clients.Community)
+	fileHandler := handlers.NewFileHandler(clients.File)
+	searchHandler := handlers.NewSearchHandler(clients.Search)
+	notifyHandler := handlers.NewNotifyHandler(clients.Notify)
 
 	// Auth routes -- no JWT auth required.
 	r.Route("/api/v1/auth", func(r chi.Router) {
@@ -123,5 +126,18 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 		// Channel message routes.
 		r.Post("/channels/{id}/messages", communityHandler.SendMessage)
 		r.Get("/channels/{id}/messages", communityHandler.GetHistory)
+
+		// File routes.
+		r.Post("/files/upload", fileHandler.UploadFile)
+		r.Get("/files/{id}/url", fileHandler.GetFileURL)
+		r.Delete("/files/{id}", fileHandler.DeleteFile)
+
+		// Search route.
+		r.Get("/search", searchHandler.Search)
+
+		// Notify routes.
+		r.Get("/notify/unread", notifyHandler.GetUnread)
+		r.Post("/notify/dm/{conv_id}/read", notifyHandler.MarkDMRead)
+		r.Post("/notify/channel/{ch_id}/read", notifyHandler.MarkChannelRead)
 	})
 }
