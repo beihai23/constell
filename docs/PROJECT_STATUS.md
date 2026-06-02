@@ -12,6 +12,8 @@ Constell（星座）是一个开源社群型 IM 系统，类似 Discord。后端
 |------|------|------|
 | `docs/superpowers/specs/2026-05-29-constell-architecture-design.md` | **架构 spec — 所有实施细节的唯一上下文源** | 699 行 |
 | `docs/superpowers/specs/2026-06-02-constell-governance-design.md` | **治理 spec — 服务发现/配置/健康检查/可观测性设计** | ~650 行 |
+| `docs/superpowers/specs/2026-06-02-constell-ws-gateway-design.md` | **WS Gateway spec — 连接管理/协议/路由/扇出设计** | ~490 行 |
+| `docs/superpowers/specs/2026-06-02-constell-plan4-file-search-notify-design.md` | **Plan 4 spec — File/Search/Notify 设计** | ~750 行 |
 | `docs/superpowers/plans/2026-05-30-constell-plans-overview.md` | 阶段计划概要（需更新为 6 个阶段） | 142 行 |
 | `docs/superpowers/plans/2026-05-30-plan1-foundation-core.md` | Plan 1 详细实施计划（22 个 Task） | ~10,700 行 |
 | `docs/superpowers/plans/2026-06-02-plan2-governance.md` | Plan 2 详细实施计划（16 个 Task） | ~2,600 行 |
