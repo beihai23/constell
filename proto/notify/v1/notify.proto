@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package notify.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/notifyv1";
+
+service NotifyService {
+  rpc GetUnreadCounts(GetUnreadCountsRequest) returns (GetUnreadCountsResponse);
+  rpc MarkDMRead(MarkDMReadRequest) returns (MarkDMReadResponse);
+  rpc MarkChannelRead(MarkChannelReadRequest) returns (MarkChannelReadResponse);
+}
+
+message GetUnreadCountsRequest {}
+
+message UnreadDMConversation {
+  string conversation_id = 1;
+  string peer_id = 2;
+  int32 count = 3;
+}
+
+message UnreadChannel {
+  string channel_id = 1;
+  string server_id = 2;
+  int32 count = 3;
+}
+
+message GetUnreadCountsResponse {
+  int32 dm_total = 1;
+  repeated UnreadDMConversation dm_conversations = 2;
+  int32 channel_total = 3;
+  repeated UnreadChannel channels = 4;
+}
+
+message MarkDMReadRequest {
+  string conversation_id = 1;
+}
+message MarkDMReadResponse {}
+
+message MarkChannelReadRequest {
+  string channel_id = 1;
+}
+message MarkChannelReadResponse {}
