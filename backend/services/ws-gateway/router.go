@@ -66,6 +66,8 @@ func (r *Router) handleSendDM(ctx context.Context, userID string, msg *gatewayv1
 		return nil, fmt.Errorf("user service SendDM: %w", err)
 	}
 
+	_ = req.FileIds // file_ids passed via API Gateway REST endpoint
+
 	return &gatewayv1.ServerEvent{
 		Type:      gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,
 		RequestId: msg.RequestId,
@@ -88,6 +90,8 @@ func (r *Router) handleSendChannelMessage(ctx context.Context, userID string, ms
 	if err != nil {
 		return nil, fmt.Errorf("community service SendMessage: %w", err)
 	}
+
+	_ = req.FileIds // file_ids passed via API Gateway REST endpoint
 
 	return &gatewayv1.ServerEvent{
 		Type:      gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,

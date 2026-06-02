@@ -111,6 +111,8 @@ func (ps *PushSubscriber) buildServerEvent(payload PushPayload) (*gatewayv1.Serv
 		return ps.buildUserOnlineEvent(payload.Payload)
 	case "USER_OFFLINE":
 		return ps.buildUserOfflineEvent(payload.Payload)
+	case "NOTIFICATION":
+		return ps.buildNotificationEvent(payload.Payload)
 	default:
 		return nil, fmt.Errorf("unknown event type: %s", payload.EventType)
 	}
@@ -157,6 +159,21 @@ func (ps *PushSubscriber) buildUserOfflineEvent(p map[string]interface{}) (*gate
 		Type: gatewayv1.ServerEventType_SERVER_EVENT_TYPE_USER_OFFLINE,
 		UserOfflineEvent: &gatewayv1.UserOfflineEvent{
 			UserId: getStringField(p, "user_id"),
+		},
+	}, nil
+}
+
+func (ps *PushSubscriber) buildNotificationEvent(p map[string]interface{}) (*gatewayv1.ServerEvent, error) {
+	return &gatewayv1.ServerEvent{
+		Type: gatewayv1.ServerEventType_SERVER_EVENT_TYPE_NOTIFICATION,
+		NotificationEvent: &gatewayv1.NotificationEvent{
+			NotificationType: getStringField(p, "notification_type"),
+			SourceId:         getStringField(p, "source_id"),
+			ServerId:         getStringField(p, "server_id"),
+			SenderId:         getStringField(p, "sender_id"),
+			SenderNickname:   getStringField(p, "sender_nickname"),
+			Preview:          getStringField(p, "preview"),
+			CreatedAt:        getInt64Field(p, "created_at"),
 		},
 	}, nil
 }
