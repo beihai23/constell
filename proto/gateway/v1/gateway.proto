@@ -140,7 +140,7 @@ message ErrorEvent {
 message NotificationEvent {
   string notification_type = 1;
   string source_id = 2;
-  string server_id = 3;
+  string community_id = 3;
   string sender_id = 4;
   string sender_nickname = 5;
   string preview = 6;

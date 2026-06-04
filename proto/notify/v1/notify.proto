@@ -20,7 +20,7 @@ message UnreadDMConversation {
 
 message UnreadChannel {
   string channel_id = 1;
-  string server_id = 2;
+  string community_id = 2;
   int32 count = 3;
 }
 

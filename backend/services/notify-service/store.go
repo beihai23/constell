@@ -10,9 +10,9 @@ import (
 
 // UnreadChannel represents an unread channel entry returned to the caller.
 type UnreadChannel struct {
-	ChannelID string
-	ServerID  string
-	Count     int32
+	ChannelID   string
+	CommunityID string
+	Count       int32
 }
 
 // UnreadDM represents an unread DM conversation entry returned to the caller.

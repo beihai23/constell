@@ -5,7 +5,7 @@ import (
 )
 
 func TestComputePermissionsOwner(t *testing.T) {
-	member := &MemberRow{ServerID: "s1", UserID: "owner"}
+	member := &MemberRow{CommunityID: "s1", UserID: "owner"}
 	perms := ComputePermissions(member, nil, "owner")
 	if perms&PermissionAdministrator == 0 {
 		t.Fatal("owner should have ADMINISTRATOR")
@@ -17,7 +17,7 @@ func TestComputePermissionsOwner(t *testing.T) {
 }
 
 func TestComputePermissionsWithRoles(t *testing.T) {
-	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	member := &MemberRow{CommunityID: "s1", UserID: "user1"}
 	roles := []*RoleRow{
 		{ID: "r1", Permissions: PermissionKickMembers | PermissionBanMembers},
 		{ID: "r2", Permissions: PermissionSendMessages | PermissionReadMessages},
@@ -37,18 +37,18 @@ func TestComputePermissionsWithRoles(t *testing.T) {
 }
 
 func TestComputePermissionsAdministrator(t *testing.T) {
-	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	member := &MemberRow{CommunityID: "s1", UserID: "user1"}
 	roles := []*RoleRow{{ID: "r1", Permissions: PermissionAdministrator}}
 	perms := ComputePermissions(member, roles, "owner")
 
-	if perms&PermissionManageServer == 0 {
-		t.Fatal("ADMINISTRATOR should imply MANAGE_SERVER")
+	if perms&PermissionManageCommunity == 0 {
+		t.Fatal("ADMINISTRATOR should imply MANAGE_COMMUNITY")
 	}
 	t.Log("ADMINISTRATOR grants all permissions")
 }
 
 func TestComputePermissionsNoRoles(t *testing.T) {
-	member := &MemberRow{ServerID: "s1", UserID: "user1"}
+	member := &MemberRow{CommunityID: "s1", UserID: "user1"}
 	perms := ComputePermissions(member, nil, "owner")
 	if perms != 0 {
 		t.Fatalf("expected 0 permissions with no roles, got %d", perms)
@@ -65,7 +65,7 @@ func TestHasPermission(t *testing.T) {
 	}{
 		{"has", PermissionSendMessages, PermissionSendMessages, true},
 		{"missing", PermissionReadMessages, PermissionSendMessages, false},
-		{"admin_bypass", PermissionAdministrator, PermissionManageServer, true},
+		{"admin_bypass", PermissionAdministrator, PermissionManageCommunity, true},
 		{"zero", 0, PermissionReadMessages, false},
 	}
 	for _, tt := range tests {
@@ -85,7 +85,7 @@ func TestPermissionBitmaskValues(t *testing.T) {
 		value int64
 	}{
 		{"ADMINISTRATOR", PermissionAdministrator, 1},
-		{"MANAGE_SERVER", PermissionManageServer, 2},
+		{"MANAGE_COMMUNITY", PermissionManageCommunity, 2},
 		{"MANAGE_CHANNELS", PermissionManageChannels, 4},
 		{"MANAGE_ROLES", PermissionManageRoles, 8},
 		{"KICK_MEMBERS", PermissionKickMembers, 16},
@@ -104,26 +104,26 @@ func TestPermissionBitmaskValues(t *testing.T) {
 	}
 }
 
-func TestMarshalUnmarshalServer(t *testing.T) {
-	s := &ServerRow{ID: "s1", Name: "Test", OwnerID: "u1"}
-	data, err := MarshalServer(s)
+func TestMarshalUnmarshalCommunity(t *testing.T) {
+	s := &CommunityRow{ID: "s1", Name: "Test", OwnerID: "u1"}
+	data, err := MarshalCommunity(s)
 	if err != nil {
-		t.Fatalf("MarshalServer: %v", err)
+		t.Fatalf("MarshalCommunity: %v", err)
 	}
-	got, err := UnmarshalServer(data)
+	got, err := UnmarshalCommunity(data)
 	if err != nil {
-		t.Fatalf("UnmarshalServer: %v", err)
+		t.Fatalf("UnmarshalCommunity: %v", err)
 	}
 	if got.ID != s.ID || got.Name != s.Name {
 		t.Fatalf("round-trip failed: %+v", got)
 	}
-	t.Log("Server marshal/unmarshal working")
+	t.Log("Community marshal/unmarshal working")
 }
 
 func TestMarshalUnmarshalMembers(t *testing.T) {
 	members := []*MemberRow{
-		{ServerID: "s1", UserID: "u1"},
-		{ServerID: "s1", UserID: "u2"},
+		{CommunityID: "s1", UserID: "u1"},
+		{CommunityID: "s1", UserID: "u2"},
 	}
 	data, err := MarshalMembers(members)
 	if err != nil {

@@ -125,10 +125,10 @@ func main() {
 	}
 
 	repo := NewRepository(pool)
-	serverCache := NewServerCache(repo, cfg.Peers, reg, "community-service")
+	communityCache := NewCommunityCache(repo, cfg.Peers, reg, "community-service")
 	membersCache := NewMembersCache(repo, cfg.Peers, reg, "community-service")
 	rolesCache := NewRolesCache(repo, cfg.Peers, reg, "community-service")
-	communityService := NewCommunityService(repo, serverCache, membersCache, rolesCache, natsResult.Conn)
+	communityService := NewCommunityService(repo, communityCache, membersCache, rolesCache, natsResult.Conn)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", hc.HealthzHandler())

@@ -169,7 +169,7 @@ func (ps *PushSubscriber) buildNotificationEvent(p map[string]interface{}) (*gat
 		NotificationEvent: &gatewayv1.NotificationEvent{
 			NotificationType: getStringField(p, "notification_type"),
 			SourceId:         getStringField(p, "source_id"),
-			ServerId:         getStringField(p, "server_id"),
+			CommunityId:      getStringField(p, "community_id"),
 			SenderId:         getStringField(p, "sender_id"),
 			SenderNickname:   getStringField(p, "sender_nickname"),
 			Preview:          getStringField(p, "preview"),

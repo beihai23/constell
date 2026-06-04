@@ -1,5 +1,5 @@
--- Servers (guilds) are community containers
-CREATE TABLE servers (
+-- Communities are group containers for channels and members
+CREATE TABLE communities (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -9,4 +9,4 @@ CREATE TABLE servers (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_servers_owner ON servers (owner_id);
+CREATE INDEX idx_communities_owner ON communities (owner_id);

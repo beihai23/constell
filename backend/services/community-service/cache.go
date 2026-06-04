@@ -10,23 +10,23 @@ import (
 	"github.com/constell/constell/backend/pkg/registry"
 )
 
-// ServerCache caches server data partitioned by server_id.
-type ServerCache struct {
+// CommunityCache caches community data partitioned by community_id.
+type CommunityCache struct {
 	cache *groupcache.Cache[string, []byte]
 	repo  *Repository
 }
 
-// NewServerCache creates a ServerCache backed by the repository.
-func NewServerCache(repo *Repository, peers []string, reg registry.Registry, regServiceName string) *ServerCache {
+// NewCommunityCache creates a CommunityCache backed by the repository.
+func NewCommunityCache(repo *Repository, peers []string, reg registry.Registry, regServiceName string) *CommunityCache {
 	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
-			serverID := key[len("server:"):]
-			server, err := repo.GetServer(ctx, serverID)
+			communityID := key[len("community:"):]
+			community, err := repo.GetCommunity(ctx, communityID)
 			if err != nil {
 				return nil, err
 			}
-			return MarshalServer(server)
+			return MarshalCommunity(community)
 		}),
 	}
 	if reg != nil {
@@ -35,37 +35,37 @@ func NewServerCache(repo *Repository, peers []string, reg registry.Registry, reg
 		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
 	}
 	c := groupcache.NewCache[string, []byte](opts...)
-	return &ServerCache{cache: c, repo: repo}
+	return &CommunityCache{cache: c, repo: repo}
 }
 
-// Get retrieves a server from cache or fills from DB.
-func (c *ServerCache) Get(ctx context.Context, serverID string) (*ServerRow, error) {
-	key := fmt.Sprintf("server:%s", serverID)
+// Get retrieves a community from cache or fills from DB.
+func (c *CommunityCache) Get(ctx context.Context, communityID string) (*CommunityRow, error) {
+	key := fmt.Sprintf("community:%s", communityID)
 	data, err := c.cache.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	return UnmarshalServer(data)
+	return UnmarshalCommunity(data)
 }
 
-// Set stores a server in the local cache.
-func (c *ServerCache) Set(ctx context.Context, server *ServerRow) {
-	key := fmt.Sprintf("server:%s", server.ID)
-	data, err := MarshalServer(server)
+// Set stores a community in the local cache.
+func (c *CommunityCache) Set(ctx context.Context, community *CommunityRow) {
+	key := fmt.Sprintf("community:%s", community.ID)
+	data, err := MarshalCommunity(community)
 	if err != nil {
-		log.Printf("cache: marshal server %s: %v", server.ID, err)
+		log.Printf("cache: marshal community %s: %v", community.ID, err)
 		return
 	}
 	c.cache.Set(ctx, key, data)
 }
 
-// Invalidate removes a server from the local cache.
-func (c *ServerCache) Invalidate(ctx context.Context, serverID string) {
-	key := fmt.Sprintf("server:%s", serverID)
+// Invalidate removes a community from the local cache.
+func (c *CommunityCache) Invalidate(ctx context.Context, communityID string) {
+	key := fmt.Sprintf("community:%s", communityID)
 	c.cache.Remove(ctx, key)
 }
 
-// MembersCache caches member lists partitioned by server_id.
+// MembersCache caches member lists partitioned by community_id.
 type MembersCache struct {
 	cache *groupcache.Cache[string, []byte]
 	repo  *Repository
@@ -76,8 +76,8 @@ func NewMembersCache(repo *Repository, peers []string, reg registry.Registry, re
 	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
-			serverID := key[len("members:"):]
-			members, _, err := repo.ListMembersByServer(ctx, serverID, 1000, "")
+			communityID := key[len("members:"):]
+			members, _, err := repo.ListMembersByCommunity(ctx, communityID, 1000, "")
 			if err != nil {
 				return nil, err
 			}
@@ -93,9 +93,9 @@ func NewMembersCache(repo *Repository, peers []string, reg registry.Registry, re
 	return &MembersCache{cache: c, repo: repo}
 }
 
-// Get retrieves the member list for a server.
-func (c *MembersCache) Get(ctx context.Context, serverID string) ([]*MemberRow, error) {
-	key := fmt.Sprintf("members:%s", serverID)
+// Get retrieves the member list for a community.
+func (c *MembersCache) Get(ctx context.Context, communityID string) ([]*MemberRow, error) {
+	key := fmt.Sprintf("members:%s", communityID)
 	data, err := c.cache.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -103,13 +103,13 @@ func (c *MembersCache) Get(ctx context.Context, serverID string) ([]*MemberRow, 
 	return UnmarshalMembers(data)
 }
 
-// Invalidate removes the member list for a server.
-func (c *MembersCache) Invalidate(ctx context.Context, serverID string) {
-	key := fmt.Sprintf("members:%s", serverID)
+// Invalidate removes the member list for a community.
+func (c *MembersCache) Invalidate(ctx context.Context, communityID string) {
+	key := fmt.Sprintf("members:%s", communityID)
 	c.cache.Remove(ctx, key)
 }
 
-// RolesCache caches role lists partitioned by server_id.
+// RolesCache caches role lists partitioned by community_id.
 type RolesCache struct {
 	cache *groupcache.Cache[string, []byte]
 	repo  *Repository
@@ -120,8 +120,8 @@ func NewRolesCache(repo *Repository, peers []string, reg registry.Registry, regS
 	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](10000),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
-			serverID := key[len("roles:"):]
-			roles, err := repo.ListRolesByServer(ctx, serverID)
+			communityID := key[len("roles:"):]
+			roles, err := repo.ListRolesByCommunity(ctx, communityID)
 			if err != nil {
 				return nil, err
 			}
@@ -137,9 +137,9 @@ func NewRolesCache(repo *Repository, peers []string, reg registry.Registry, regS
 	return &RolesCache{cache: c, repo: repo}
 }
 
-// Get retrieves the role list for a server.
-func (c *RolesCache) Get(ctx context.Context, serverID string) ([]*RoleRow, error) {
-	key := fmt.Sprintf("roles:%s", serverID)
+// Get retrieves the role list for a community.
+func (c *RolesCache) Get(ctx context.Context, communityID string) ([]*RoleRow, error) {
+	key := fmt.Sprintf("roles:%s", communityID)
 	data, err := c.cache.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -147,9 +147,9 @@ func (c *RolesCache) Get(ctx context.Context, serverID string) ([]*RoleRow, erro
 	return UnmarshalRoles(data)
 }
 
-// Invalidate removes the role list for a server.
-func (c *RolesCache) Invalidate(ctx context.Context, serverID string) {
-	key := fmt.Sprintf("roles:%s", serverID)
+// Invalidate removes the role list for a community.
+func (c *RolesCache) Invalidate(ctx context.Context, communityID string) {
+	key := fmt.Sprintf("roles:%s", communityID)
 	c.cache.Remove(ctx, key)
 }
 

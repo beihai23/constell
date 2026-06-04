@@ -37,7 +37,7 @@ message UserResult {
 message MessageResult {
   string id = 1;
   string channel_id = 2;
-  string server_id = 3;
+  string community_id = 3;
   string author_id = 4;
   string content = 5;
   int64 created_at = 6;

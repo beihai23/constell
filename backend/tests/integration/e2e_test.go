@@ -7,9 +7,9 @@ import (
 
 // TestE2EUserJourney runs the complete user journey as a single test:
 // 1. Register User A and User B
-// 2. User A creates a server
+// 2. User A creates a community
 // 3. User A creates a channel "general"
-// 4. User B joins the server
+// 4. User B joins the community
 // 5. User A sends a channel message
 // 6. User B reads the channel message
 // 7. User A sends a DM to User B
@@ -36,23 +36,23 @@ func TestE2EUserJourney(t *testing.T) {
 	}
 	t.Logf("[step 1] User A can see User B's profile: nickname=%s", profileB.Nickname)
 
-	// --- Step 2: User A creates a server ---
-	srvResp := doPost(t, apiURL("/api/v1/servers"), userA.AccessToken, map[string]string{
-		"name":        "E2E Test Server",
-		"description": "Server for E2E testing",
+	// --- Step 2: User A creates a community ---
+	srvResp := doPost(t, apiURL("/api/v1/communities"), userA.AccessToken, map[string]string{
+		"name":        "E2E Test Community",
+		"description": "Community for E2E testing",
 	})
 	defer srvResp.Body.Close()
 	requireStatus(t, srvResp, http.StatusCreated)
-	var server struct {
+	var community struct {
 		ID      string `json:"id"`
 		Name    string `json:"name"`
 		OwnerID string `json:"owner_id"`
 	}
-	parseJSON(t, srvResp.Body, &server)
-	t.Logf("[step 2] User A created server: id=%s name=%s", server.ID, server.Name)
+	parseJSON(t, srvResp.Body, &community)
+	t.Logf("[step 2] User A created community: id=%s name=%s", community.ID, community.Name)
 
-	// Verify server is retrievable.
-	getSrvResp := doGet(t, apiURL("/api/v1/servers/"+server.ID), userA.AccessToken)
+	// Verify community is retrievable.
+	getSrvResp := doGet(t, apiURL("/api/v1/communities/"+community.ID), userA.AccessToken)
 	defer getSrvResp.Body.Close()
 	requireStatus(t, getSrvResp, http.StatusOK)
 	var fetched struct {
@@ -63,24 +63,24 @@ func TestE2EUserJourney(t *testing.T) {
 	if fetched.OwnerID != userA.UserID {
 		t.Fatalf("[step 2] expected owner %q, got %q", userA.UserID, fetched.OwnerID)
 	}
-	t.Logf("[step 2] Server verified: name=%s owner=%s", fetched.Name, fetched.OwnerID)
+	t.Logf("[step 2] Community verified: name=%s owner=%s", fetched.Name, fetched.OwnerID)
 
 	// --- Step 3: User A creates a channel "general" ---
-	chResp := doPost(t, apiURL("/api/v1/servers/"+server.ID+"/channels"), userA.AccessToken, map[string]string{
+	chResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), userA.AccessToken, map[string]string{
 		"name": "general",
 	})
 	defer chResp.Body.Close()
 	requireStatus(t, chResp, http.StatusCreated)
 	var channel struct {
-		ID       string `json:"id"`
-		ServerID string `json:"server_id"`
-		Name     string `json:"name"`
+		ID          string `json:"id"`
+		CommunityID string `json:"community_id"`
+		Name        string `json:"name"`
 	}
 	parseJSON(t, chResp.Body, &channel)
 	t.Logf("[step 3] User A created channel: id=%s name=%s", channel.ID, channel.Name)
 
 	// Verify channel in list.
-	chListResp := doGet(t, apiURL("/api/v1/servers/"+server.ID+"/channels"), userA.AccessToken)
+	chListResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), userA.AccessToken)
 	defer chListResp.Body.Close()
 	requireStatus(t, chListResp, http.StatusOK)
 	var channelList struct {
@@ -102,17 +102,17 @@ func TestE2EUserJourney(t *testing.T) {
 	}
 	t.Logf("[step 3] Channel verified in channel list")
 
-	// --- Step 4: User B joins the server ---
+	// --- Step 4: User B joins the community ---
 	// The AddMember handler uses forwardAuth, so the joining user must call with their own token.
-	joinResp := doPost(t, apiURL("/api/v1/servers/"+server.ID+"/members"), userB.AccessToken, map[string]string{
+	joinResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/members"), userB.AccessToken, map[string]string{
 		"user_id": userB.UserID,
 	})
 	defer joinResp.Body.Close()
 	requireStatus(t, joinResp, http.StatusCreated)
-	t.Logf("[step 4] User B joined the server")
+	t.Logf("[step 4] User B joined the community")
 
 	// Verify User B in member list.
-	memListResp := doGet(t, apiURL("/api/v1/servers/"+server.ID+"/members"), userA.AccessToken)
+	memListResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/members"), userA.AccessToken)
 	defer memListResp.Body.Close()
 	requireStatus(t, memListResp, http.StatusOK)
 	var memberList struct {
@@ -134,7 +134,7 @@ func TestE2EUserJourney(t *testing.T) {
 	t.Logf("[step 4] User B verified in member list (%d total)", len(memberList.Members))
 
 	// --- Step 5: User A sends a message in #general ---
-	msgContent := "Welcome to E2E Test Server!"
+	msgContent := "Welcome to E2E Test Community!"
 	msgResp := doPost(t, apiURL("/api/v1/channels/"+channel.ID+"/messages"), userA.AccessToken, map[string]string{
 		"content": msgContent,
 	})
@@ -225,7 +225,7 @@ func TestE2EUserJourney(t *testing.T) {
 	t.Log("E2E User Journey Completed Successfully")
 	t.Logf("  User A: %s (%s)", userA.UserID, userA.Email)
 	t.Logf("  User B: %s (%s)", userB.UserID, userB.Email)
-	t.Logf("  Server: %s", server.ID)
+	t.Logf("  Community: %s", community.ID)
 	t.Logf("  Channel: %s", channel.ID)
 	t.Logf("  Channel Message: %s", sentMsg.ID)
 	t.Logf("  DM Conversation: %s", sentDM.ConversationID)

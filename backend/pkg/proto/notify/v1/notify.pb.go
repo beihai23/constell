@@ -120,7 +120,7 @@ func (x *UnreadDMConversation) GetCount() int32 {
 type UnreadChannel struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	ServerId      string                 `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	CommunityId   string                 `protobuf:"bytes,2,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
 	Count         int32                  `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -163,9 +163,9 @@ func (x *UnreadChannel) GetChannelId() string {
 	return ""
 }
 
-func (x *UnreadChannel) GetServerId() string {
+func (x *UnreadChannel) GetCommunityId() string {
 	if x != nil {
-		return x.ServerId
+		return x.CommunityId
 	}
 	return ""
 }
@@ -414,11 +414,11 @@ const file_notify_v1_notify_proto_rawDesc = "" +
 	"\x14UnreadDMConversation\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x17\n" +
 	"\apeer_id\x18\x02 \x01(\tR\x06peerId\x12\x14\n" +
-	"\x05count\x18\x03 \x01(\x05R\x05count\"a\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\"g\n" +
 	"\rUnreadChannel\x12\x1d\n" +
 	"\n" +
-	"channel_id\x18\x01 \x01(\tR\tchannelId\x12\x1b\n" +
-	"\tserver_id\x18\x02 \x01(\tR\bserverId\x12\x14\n" +
+	"channel_id\x18\x01 \x01(\tR\tchannelId\x12!\n" +
+	"\fcommunity_id\x18\x02 \x01(\tR\vcommunityId\x12\x14\n" +
 	"\x05count\x18\x03 \x01(\x05R\x05count\"\xdb\x01\n" +
 	"\x17GetUnreadCountsResponse\x12\x19\n" +
 	"\bdm_total\x18\x01 \x01(\x05R\admTotal\x12J\n" +

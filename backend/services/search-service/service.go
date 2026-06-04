@@ -141,7 +141,7 @@ func toPBMessageResults(results []MessageSearchResult) []*pbv1.MessageResult {
 		out[i] = &pbv1.MessageResult{
 			Id:        r.ID,
 			ChannelId: r.ChannelID,
-			ServerId:  r.ServerID,
+			CommunityId: r.CommunityID,
 			AuthorId:  r.AuthorID,
 			Content:   r.Content,
 			CreatedAt: r.CreatedAt,

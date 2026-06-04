@@ -30,7 +30,7 @@ type unreadDMConversation struct {
 // unreadChannel is the JSON representation of an unread channel.
 type unreadChannel struct {
 	ChannelID string `json:"channel_id"`
-	ServerID  string `json:"server_id"`
+	CommunityID string `json:"community_id"`
 	Count     int32  `json:"count"`
 }
 
@@ -66,8 +66,8 @@ func (h *NotifyHandler) GetUnread(w http.ResponseWriter, r *http.Request) {
 	channels := make([]unreadChannel, 0, len(msg.Channels))
 	for _, c := range msg.Channels {
 		channels = append(channels, unreadChannel{
-			ChannelID: c.GetChannelId(),
-			ServerID:  c.GetServerId(),
+			ChannelID:   c.GetChannelId(),
+			CommunityID: c.GetCommunityId(),
 			Count:     c.GetCount(),
 		})
 	}

@@ -100,27 +100,27 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 			r.Get("/conversations", notImplemented()) // GetDMConversations RPC added in Task 16
 		})
 
-		// Server (community) routes.
-		r.Post("/servers", communityHandler.CreateServer)
-		r.Route("/servers/{id}", func(r chi.Router) {
-			r.Get("/", communityHandler.GetServer)
-			r.Patch("/", communityHandler.UpdateServer)
+		// Community routes.
+		r.Post("/communities", communityHandler.CreateCommunity)
+		r.Route("/communities/{id}", func(r chi.Router) {
+			r.Get("/", communityHandler.GetCommunity)
+			r.Patch("/", communityHandler.UpdateCommunity)
 
-			// Channels under a server.
+			// Channels under a community.
 			r.Post("/channels", communityHandler.CreateChannel)
 			r.Get("/channels", communityHandler.GetChannels)
 
-			// Members under a server.
+			// Members under a community.
 			r.Post("/members", communityHandler.AddMember)
 			r.Delete("/members/{uid}", communityHandler.RemoveMember)
 			r.Get("/members", communityHandler.ListMembers)
 
-			// Roles under a server.
+			// Roles under a community.
 			r.Post("/roles", notImplemented())                      // CreateRole RPC added in Task 17
 			r.Post("/members/{uid}/roles/{rid}", notImplemented()) // AssignRole RPC added in Task 17
 		})
 
-		// Channel routes (not nested under /servers).
+		// Channel routes (not nested under /communities).
 		r.Patch("/channels/{id}", communityHandler.UpdateChannel)
 
 		// Channel message routes.

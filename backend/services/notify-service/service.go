@@ -63,9 +63,9 @@ func (s *NotifyService) GetUnreadCounts(
 	for _, ch := range unreadChannels {
 		channelTotal += ch.Count
 		channels = append(channels, &notifyv1.UnreadChannel{
-			ChannelId: ch.ChannelID,
-			ServerId:  ch.ServerID,
-			Count:     ch.Count,
+			ChannelId:   ch.ChannelID,
+			CommunityId: ch.CommunityID,
+			Count:       ch.Count,
 		})
 	}
 

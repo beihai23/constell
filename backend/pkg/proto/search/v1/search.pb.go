@@ -265,7 +265,7 @@ type MessageResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ChannelId     string                 `protobuf:"bytes,2,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	ServerId      string                 `protobuf:"bytes,3,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	CommunityId   string                 `protobuf:"bytes,3,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
 	AuthorId      string                 `protobuf:"bytes,4,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
 	Content       string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -318,9 +318,9 @@ func (x *MessageResult) GetChannelId() string {
 	return ""
 }
 
-func (x *MessageResult) GetServerId() string {
+func (x *MessageResult) GetCommunityId() string {
 	if x != nil {
-		return x.ServerId
+		return x.CommunityId
 	}
 	return ""
 }
@@ -457,12 +457,12 @@ const file_search_v1_search_proto_rawDesc = "" +
 	"\bnickname\x18\x02 \x01(\tR\bnickname\x12\x1d\n" +
 	"\n" +
 	"avatar_url\x18\x03 \x01(\tR\tavatarUrl\x12\x1c\n" +
-	"\trelevance\x18\x04 \x01(\x01R\trelevance\"\xcf\x01\n" +
+	"\trelevance\x18\x04 \x01(\x01R\trelevance\"\xd5\x01\n" +
 	"\rMessageResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
-	"channel_id\x18\x02 \x01(\tR\tchannelId\x12\x1b\n" +
-	"\tserver_id\x18\x03 \x01(\tR\bserverId\x12\x1b\n" +
+	"channel_id\x18\x02 \x01(\tR\tchannelId\x12!\n" +
+	"\fcommunity_id\x18\x03 \x01(\tR\vcommunityId\x12\x1b\n" +
 	"\tauthor_id\x18\x04 \x01(\tR\bauthorId\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +

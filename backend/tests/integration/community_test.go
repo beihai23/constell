@@ -5,40 +5,40 @@ import (
 	"testing"
 )
 
-func TestCreateAndGetServer(t *testing.T) {
+func TestCreateAndGetCommunity(t *testing.T) {
 	user := registerUser(t)
 
-	// Create a server.
-	serverName := "TestServer-" + uniqueNickname()
-	createResp := doPost(t, apiURL("/api/v1/servers"), user.AccessToken, map[string]string{
-		"name":        serverName,
-		"description": "A test server",
+	// Create a community.
+	communityName := "TestCommunity-" + uniqueNickname()
+	createResp := doPost(t, apiURL("/api/v1/communities"), user.AccessToken, map[string]string{
+		"name":        communityName,
+		"description": "A test community",
 	})
 	defer createResp.Body.Close()
 	requireStatus(t, createResp, http.StatusCreated)
 
-	var server struct {
+	var community struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		OwnerID     string `json:"owner_id"`
 		CreatedAt   int64  `json:"created_at"`
 	}
-	parseJSON(t, createResp.Body, &server)
+	parseJSON(t, createResp.Body, &community)
 
-	if server.ID == "" {
-		t.Fatal("expected non-empty server id")
+	if community.ID == "" {
+		t.Fatal("expected non-empty community id")
 	}
-	if server.Name != serverName {
-		t.Fatalf("server name mismatch: got %s, want %s", server.Name, serverName)
+	if community.Name != communityName {
+		t.Fatalf("community name mismatch: got %s, want %s", community.Name, communityName)
 	}
-	if server.OwnerID != user.UserID {
-		t.Fatalf("owner mismatch: got %s, want %s", server.OwnerID, user.UserID)
+	if community.OwnerID != user.UserID {
+		t.Fatalf("owner mismatch: got %s, want %s", community.OwnerID, user.UserID)
 	}
-	t.Logf("create server OK: id=%s name=%s", server.ID, server.Name)
+	t.Logf("create community OK: id=%s name=%s", community.ID, community.Name)
 
-	// Get the server.
-	getResp := doGet(t, apiURL("/api/v1/servers/"+server.ID), user.AccessToken)
+	// Get the community.
+	getResp := doGet(t, apiURL("/api/v1/communities/"+community.ID), user.AccessToken)
 	defer getResp.Body.Close()
 	requireStatus(t, getResp, http.StatusOK)
 
@@ -49,30 +49,30 @@ func TestCreateAndGetServer(t *testing.T) {
 	}
 	parseJSON(t, getResp.Body, &fetched)
 
-	if fetched.ID != server.ID {
-		t.Fatalf("fetched server id mismatch: got %s, want %s", fetched.ID, server.ID)
+	if fetched.ID != community.ID {
+		t.Fatalf("fetched community id mismatch: got %s, want %s", fetched.ID, community.ID)
 	}
-	t.Logf("get server OK")
+	t.Logf("get community OK")
 }
 
-func TestUpdateServer(t *testing.T) {
+func TestUpdateCommunity(t *testing.T) {
 	user := registerUser(t)
 
-	// Create a server first.
-	createResp := doPost(t, apiURL("/api/v1/servers"), user.AccessToken, map[string]string{
+	// Create a community first.
+	createResp := doPost(t, apiURL("/api/v1/communities"), user.AccessToken, map[string]string{
 		"name": "OriginalName",
 	})
 	defer createResp.Body.Close()
 	requireStatus(t, createResp, http.StatusCreated)
 
-	var server struct {
+	var community struct {
 		ID string `json:"id"`
 	}
-	parseJSON(t, createResp.Body, &server)
+	parseJSON(t, createResp.Body, &community)
 
-	// Update the server.
+	// Update the community.
 	newName := "UpdatedName"
-	updateResp := doPatch(t, apiURL("/api/v1/servers/"+server.ID), user.AccessToken, map[string]string{
+	updateResp := doPatch(t, apiURL("/api/v1/communities/"+community.ID), user.AccessToken, map[string]string{
 		"name":        newName,
 		"description": "Updated description",
 	})
@@ -86,38 +86,38 @@ func TestUpdateServer(t *testing.T) {
 	parseJSON(t, updateResp.Body, &updated)
 
 	if updated.Name != newName {
-		t.Fatalf("server name not updated: got %s, want %s", updated.Name, newName)
+		t.Fatalf("community name not updated: got %s, want %s", updated.Name, newName)
 	}
-	t.Logf("update server OK")
+	t.Logf("update community OK")
 }
 
 func TestChannelCRUD(t *testing.T) {
 	user := registerUser(t)
 
-	// Create a server.
-	createResp := doPost(t, apiURL("/api/v1/servers"), user.AccessToken, map[string]string{
-		"name": "ChannelTestServer",
+	// Create a community.
+	createResp := doPost(t, apiURL("/api/v1/communities"), user.AccessToken, map[string]string{
+		"name": "ChannelTestCommunity",
 	})
 	defer createResp.Body.Close()
 	requireStatus(t, createResp, http.StatusCreated)
 
-	var server struct {
+	var community struct {
 		ID string `json:"id"`
 	}
-	parseJSON(t, createResp.Body, &server)
+	parseJSON(t, createResp.Body, &community)
 
 	// Create a channel.
 	chName := "general"
-	chResp := doPost(t, apiURL("/api/v1/servers/"+server.ID+"/channels"), user.AccessToken, map[string]string{
+	chResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), user.AccessToken, map[string]string{
 		"name": chName,
 	})
 	defer chResp.Body.Close()
 	requireStatus(t, chResp, http.StatusCreated)
 
 	var channel struct {
-		ID       string `json:"id"`
-		ServerID string `json:"server_id"`
-		Name     string `json:"name"`
+		ID          string `json:"id"`
+		CommunityID string `json:"community_id"`
+		Name        string `json:"name"`
 	}
 	parseJSON(t, chResp.Body, &channel)
 
@@ -130,7 +130,7 @@ func TestChannelCRUD(t *testing.T) {
 	t.Logf("create channel OK: id=%s name=%s", channel.ID, channel.Name)
 
 	// List channels.
-	listResp := doGet(t, apiURL("/api/v1/servers/"+server.ID+"/channels"), user.AccessToken)
+	listResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), user.AccessToken)
 	defer listResp.Body.Close()
 	requireStatus(t, listResp, http.StatusOK)
 
@@ -179,28 +179,28 @@ func TestMemberJoinLeave(t *testing.T) {
 	owner := registerUser(t)
 	member := registerUser(t)
 
-	// Owner creates a server.
-	createResp := doPost(t, apiURL("/api/v1/servers"), owner.AccessToken, map[string]string{
-		"name": "MemberTestServer",
+	// Owner creates a community.
+	createResp := doPost(t, apiURL("/api/v1/communities"), owner.AccessToken, map[string]string{
+		"name": "MemberTestCommunity",
 	})
 	defer createResp.Body.Close()
 	requireStatus(t, createResp, http.StatusCreated)
 
-	var server struct {
+	var community struct {
 		ID string `json:"id"`
 	}
-	parseJSON(t, createResp.Body, &server)
+	parseJSON(t, createResp.Body, &community)
 
-	// Member joins the server (uses their own auth token).
-	joinResp := doPost(t, apiURL("/api/v1/servers/"+server.ID+"/members"), member.AccessToken, map[string]string{
+	// Member joins the community (uses their own auth token).
+	joinResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/members"), member.AccessToken, map[string]string{
 		"user_id": member.UserID,
 	})
 	defer joinResp.Body.Close()
 	requireStatus(t, joinResp, http.StatusCreated)
 
 	var joinedMember struct {
-		UserID   string `json:"user_id"`
-		ServerID string `json:"server_id"`
+		UserID      string `json:"user_id"`
+		CommunityID string `json:"community_id"`
 	}
 	parseJSON(t, joinResp.Body, &joinedMember)
 
@@ -210,7 +210,7 @@ func TestMemberJoinLeave(t *testing.T) {
 	t.Logf("member join OK: user=%s", joinedMember.UserID)
 
 	// List members — should contain at least owner and member.
-	listResp := doGet(t, apiURL("/api/v1/servers/"+server.ID+"/members"), owner.AccessToken)
+	listResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/members"), owner.AccessToken)
 	defer listResp.Body.Close()
 	requireStatus(t, listResp, http.StatusOK)
 
@@ -226,8 +226,8 @@ func TestMemberJoinLeave(t *testing.T) {
 	}
 	t.Logf("list members OK: %d members", len(list.Members))
 
-	// Member leaves the server.
-	leaveResp := doDelete(t, apiURL("/api/v1/servers/"+server.ID+"/members/"+member.UserID), member.AccessToken)
+	// Member leaves the community.
+	leaveResp := doDelete(t, apiURL("/api/v1/communities/"+community.ID+"/members/"+member.UserID), member.AccessToken)
 	defer leaveResp.Body.Close()
 	requireStatus(t, leaveResp, http.StatusOK)
 	t.Logf("member leave OK")
@@ -236,16 +236,16 @@ func TestMemberJoinLeave(t *testing.T) {
 func TestChannelMessages(t *testing.T) {
 	user := registerUser(t)
 
-	// Create server + channel.
-	srvResp := doPost(t, apiURL("/api/v1/servers"), user.AccessToken, map[string]string{
-		"name": "MessageTestServer",
+	// Create community + channel.
+	srvResp := doPost(t, apiURL("/api/v1/communities"), user.AccessToken, map[string]string{
+		"name": "MessageTestCommunity",
 	})
 	defer srvResp.Body.Close()
 	requireStatus(t, srvResp, http.StatusCreated)
-	var server struct{ ID string `json:"id"` }
-	parseJSON(t, srvResp.Body, &server)
+	var community struct{ ID string `json:"id"` }
+	parseJSON(t, srvResp.Body, &community)
 
-	chResp := doPost(t, apiURL("/api/v1/servers/"+server.ID+"/channels"), user.AccessToken, map[string]string{
+	chResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), user.AccessToken, map[string]string{
 		"name": "chat",
 	})
 	defer chResp.Body.Close()

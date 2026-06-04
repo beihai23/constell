@@ -23,27 +23,27 @@ type DMCreatedEvent struct {
 
 // MessageCreatedEvent represents a new channel message event consumed from NATS.
 type MessageCreatedEvent struct {
-	MessageID string   `json:"message_id"`
-	ChannelID string   `json:"channel_id"`
-	ServerID  string   `json:"server_id"`
-	SenderID  string   `json:"sender_id"`
-	Content   string   `json:"content"`
-	MemberIDs []string `json:"member_ids"`
-	CreatedAt int64    `json:"created_at"`
+	MessageID   string   `json:"message_id"`
+	ChannelID   string   `json:"channel_id"`
+	CommunityID string   `json:"community_id"`
+	SenderID    string   `json:"sender_id"`
+	Content     string   `json:"content"`
+	MemberIDs   []string `json:"member_ids"`
+	CreatedAt   int64    `json:"created_at"`
 }
 
-// MemberJoinedEvent represents a member joining a server.
+// MemberJoinedEvent represents a member joining a community.
 type MemberJoinedEvent struct {
-	ServerID   string   `json:"server_id"`
-	UserID     string   `json:"user_id"`
-	ChannelIDs []string `json:"channel_ids"`
+	CommunityID string   `json:"community_id"`
+	UserID      string   `json:"user_id"`
+	ChannelIDs  []string `json:"channel_ids"`
 }
 
-// MemberLeftEvent represents a member leaving a server.
+// MemberLeftEvent represents a member leaving a community.
 type MemberLeftEvent struct {
-	ServerID   string   `json:"server_id"`
-	UserID     string   `json:"user_id"`
-	ChannelIDs []string `json:"channel_ids"`
+	CommunityID string   `json:"community_id"`
+	UserID      string   `json:"user_id"`
+	ChannelIDs  []string `json:"channel_ids"`
 }
 
 // ---------- Push payload ----------

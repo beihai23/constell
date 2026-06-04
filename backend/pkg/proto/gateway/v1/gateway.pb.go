@@ -922,7 +922,7 @@ type NotificationEvent struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	NotificationType string                 `protobuf:"bytes,1,opt,name=notification_type,json=notificationType,proto3" json:"notification_type,omitempty"`
 	SourceId         string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	ServerId         string                 `protobuf:"bytes,3,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	CommunityId      string                 `protobuf:"bytes,3,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
 	SenderId         string                 `protobuf:"bytes,4,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
 	SenderNickname   string                 `protobuf:"bytes,5,opt,name=sender_nickname,json=senderNickname,proto3" json:"sender_nickname,omitempty"`
 	Preview          string                 `protobuf:"bytes,6,opt,name=preview,proto3" json:"preview,omitempty"`
@@ -975,9 +975,9 @@ func (x *NotificationEvent) GetSourceId() string {
 	return ""
 }
 
-func (x *NotificationEvent) GetServerId() string {
+func (x *NotificationEvent) GetCommunityId() string {
 	if x != nil {
-		return x.ServerId
+		return x.CommunityId
 	}
 	return ""
 }
@@ -1083,11 +1083,11 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\n" +
 	"ErrorEvent\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xf9\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xff\x01\n" +
 	"\x11NotificationEvent\x12+\n" +
 	"\x11notification_type\x18\x01 \x01(\tR\x10notificationType\x12\x1b\n" +
-	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x1b\n" +
-	"\tserver_id\x18\x03 \x01(\tR\bserverId\x12\x1b\n" +
+	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12!\n" +
+	"\fcommunity_id\x18\x03 \x01(\tR\vcommunityId\x12\x1b\n" +
 	"\tsender_id\x18\x04 \x01(\tR\bsenderId\x12'\n" +
 	"\x0fsender_nickname\x18\x05 \x01(\tR\x0esenderNickname\x12\x18\n" +
 	"\apreview\x18\x06 \x01(\tR\apreview\x12\x1d\n" +

@@ -30,7 +30,7 @@ type userSearchResult struct {
 type messageSearchResult struct {
 	ID        string `json:"id"`
 	ChannelID string `json:"channel_id"`
-	ServerID  string `json:"server_id"`
+	CommunityID string `json:"community_id"`
 	AuthorID  string `json:"author_id"`
 	Content   string `json:"content"`
 	CreatedAt int64  `json:"created_at"`
@@ -88,8 +88,8 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	for _, m := range msg.Messages {
 		messages = append(messages, messageSearchResult{
 			ID:        m.GetId(),
-			ChannelID: m.GetChannelId(),
-			ServerID:  m.GetServerId(),
+			ChannelID:   m.GetChannelId(),
+			CommunityID: m.GetCommunityId(),
 			AuthorID:  m.GetAuthorId(),
 			Content:   m.GetContent(),
 			CreatedAt: m.GetCreatedAt(),

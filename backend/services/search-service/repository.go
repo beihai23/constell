@@ -17,13 +17,13 @@ type UserSearchResult struct {
 
 // MessageSearchResult holds a row from channel message search.
 type MessageSearchResult struct {
-	ID        string
-	ChannelID string
-	ServerID  string
-	AuthorID  string
-	Content   string
-	CreatedAt int64
-	Relevance float64
+	ID          string
+	ChannelID   string
+	CommunityID string
+	AuthorID    string
+	Content     string
+	CreatedAt   int64
+	Relevance   float64
 }
 
 // DMMessageSearchResult holds a row from DM message search.
@@ -80,16 +80,16 @@ func (r *Repository) SearchUsers(ctx context.Context, query string, limit int) (
 	return results, rows.Err()
 }
 
-// SearchChannelMessages searches channel messages with server membership check.
-// Only returns messages from channels in servers where the user is a member.
+// SearchChannelMessages searches channel messages with community membership check.
+// Only returns messages from channels in communities where the user is a member.
 func (r *Repository) SearchChannelMessages(ctx context.Context, query string, userID string, limit int) ([]MessageSearchResult, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT cm.id, cm.channel_id, c.server_id, cm.author_id, cm.content,
+		SELECT cm.id, cm.channel_id, c.community_id, cm.author_id, cm.content,
 		       EXTRACT(EPOCH FROM cm.created_at)::bigint AS created_at,
 		       ts_rank(cm.search_vector, plainto_tsquery('simple', $1)) AS relevance
 		FROM channel_messages cm
 		JOIN channels c ON c.id = cm.channel_id
-		JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+		JOIN community_members mb ON mb.community_id = c.community_id AND mb.user_id = $2
 		WHERE cm.search_vector @@ plainto_tsquery('simple', $1)
 		ORDER BY relevance DESC
 		LIMIT $3
@@ -102,7 +102,7 @@ func (r *Repository) SearchChannelMessages(ctx context.Context, query string, us
 	var results []MessageSearchResult
 	for rows.Next() {
 		var r MessageSearchResult
-		if err := rows.Scan(&r.ID, &r.ChannelID, &r.ServerID, &r.AuthorID, &r.Content, &r.CreatedAt, &r.Relevance); err != nil {
+		if err := rows.Scan(&r.ID, &r.ChannelID, &r.CommunityID, &r.AuthorID, &r.Content, &r.CreatedAt, &r.Relevance); err != nil {
 			return nil, fmt.Errorf("scan message result: %w", err)
 		}
 		results = append(results, r)

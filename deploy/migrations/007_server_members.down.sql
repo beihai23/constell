@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS server_members;
+DROP TABLE IF EXISTS community_members;
