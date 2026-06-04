@@ -23,6 +23,10 @@ export {
 } from "./codec.js";
 export type { ClientMessageOptions } from "./codec.js";
 
+// WSManager — WebSocket connection management with heartbeat and reconnect
+export { WSManager } from "./ws-manager.js";
+export type { WSBusEvents, WebSocketFactory } from "./ws-manager.js";
+
 // Types — enums
 export {
   ChannelType,
