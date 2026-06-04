@@ -1,6 +1,17 @@
 // Errors
 export { ConstellError, AuthError, NetworkError } from "./errors.js";
 
+// Codec — binary frame encode/decode for WebSocket protocol
+export {
+  createClientMessage,
+  encodeClientFrame,
+  decodeServerEvent,
+  readServerEvent,
+  generateRequestId,
+  FRAME_HEADER_SIZE,
+} from "./codec.js";
+export type { ClientMessageOptions } from "./codec.js";
+
 // Types — enums
 export {
   ChannelType,
@@ -8,6 +19,29 @@ export {
   ClientEventType,
   WSStatus,
 } from "./types.js";
+
+// Protobuf-generated enums
+export {
+  ClientMessageType,
+  ServerEventType,
+} from "./protobuf/gateway/v1/gateway_pb.js";
+
+// Protobuf-generated types (type-only)
+export type {
+  ClientMessage,
+  ServerEvent,
+  SendDMRequest,
+  SendChannelMessageRequest,
+  SubscribeChannelRequest,
+  UnsubscribeChannelRequest,
+  DMReceivedEvent,
+  ChannelMessageReceivedEvent,
+  UserOnlineEvent,
+  UserOfflineEvent,
+  ErrorEvent,
+  AckEvent,
+  NotificationEvent as GatewayNotificationEvent,
+} from "./protobuf/gateway/v1/gateway_pb.js";
 
 // Types — interfaces (re-exported as type-only)
 export type {
