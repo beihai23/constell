@@ -1,6 +1,10 @@
 // Errors
 export { ConstellError, AuthError, NetworkError } from "./errors.js";
 
+// EventBus — typed event emitter
+export { EventBus } from "./event-bus.js";
+export type { EventHandler, EventMap } from "./event-bus.js";
+
 // Codec — binary frame encode/decode for WebSocket protocol
 export {
   createClientMessage,
