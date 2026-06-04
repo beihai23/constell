@@ -1,6 +1,10 @@
 // Errors
 export { ConstellError, AuthError, NetworkError } from "./errors.js";
 
+// Auth — JWT token lifecycle management
+export { AuthManager } from "./auth.js";
+export type { Storage } from "./auth.js";
+
 // EventBus — typed event emitter
 export { EventBus } from "./event-bus.js";
 export type { EventHandler, EventMap } from "./event-bus.js";
