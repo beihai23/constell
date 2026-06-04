@@ -5,6 +5,9 @@ export { ConstellError, AuthError, NetworkError } from "./errors.js";
 export { AuthManager } from "./auth.js";
 export type { Storage } from "./auth.js";
 
+// RESTClient — authenticated HTTP API calls
+export { RESTClient } from "./rest-client.js";
+
 // EventBus — typed event emitter
 export { EventBus } from "./event-bus.js";
 export type { EventHandler, EventMap } from "./event-bus.js";
