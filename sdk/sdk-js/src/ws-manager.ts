@@ -17,6 +17,7 @@ import { ClientMessageType } from "./protobuf/gateway/v1/gateway_pb.js";
 
 /** Events emitted by WSManager on the internal bus. */
 export interface WSBusEvents {
+  [key: string]: (...args: any[]) => void;
   connected: () => void;
   disconnected: () => void;
   message: (data: ArrayBuffer) => void;

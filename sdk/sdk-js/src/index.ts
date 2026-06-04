@@ -1,3 +1,7 @@
+// ConstellClient — unified SDK entry point
+export { ConstellClient } from "./client.js";
+export type { ClientEvents } from "./client.js";
+
 // Errors
 export { ConstellError, AuthError, NetworkError } from "./errors.js";
 
