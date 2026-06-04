@@ -17,6 +17,9 @@ backend/services/auth-service/auth-service
 backend/services/community-service/community-service
 backend/services/user-service/user-service
 backend/services/ws-gateway/ws-gateway
+backend/services/file-service/file-service
+backend/services/search-service/search-service
+backend/services/notify-service/notify-service
 backend/tools/migrate/migrate
 
 # Workspace-level compiled binaries (go build from backend/)
@@ -24,6 +27,9 @@ backend/auth-service
 backend/community-service
 backend/user-service
 backend/ws-gateway
+backend/file-service
+backend/search-service
+backend/notify-service
 
 # --- Go ---
 vendor/
