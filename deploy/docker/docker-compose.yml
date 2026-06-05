@@ -369,6 +369,22 @@ services:
       timeout: 5s
       retries: 3
 
+  # ============================================
+  # Web Client
+  # ============================================
+
+  web:
+    build:
+      context: ../../clients/web
+      dockerfile: Dockerfile
+    container_name: constell-web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+      - ws-gateway-1
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
