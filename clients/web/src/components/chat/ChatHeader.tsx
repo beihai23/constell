@@ -18,6 +18,7 @@ export function ChatHeader() {
   const client = useConstellClient();
   const channels = useCommunitiesStore((s) => s.channels);
   const toggleMemberList = useUIStore((s) => s.toggleMemberList);
+  const toggleSearch = useUIStore((s) => s.toggleSearch);
   const showMemberList = useUIStore((s) => s.showMemberList);
   const onlineUsers = useUIStore((s) => s.onlineUsers);
 
@@ -95,7 +96,9 @@ export function ChatHeader() {
         {!isDM && (
           <button
             className="flex h-8 w-8 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#313244] hover:text-[#cdd6f4]"
+            onClick={toggleSearch}
             aria-label="Search"
+            title="Search (Cmd+K)"
           >
             <Search className="h-4 w-4" />
           </button>

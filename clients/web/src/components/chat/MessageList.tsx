@@ -27,6 +27,7 @@ export function MessageList() {
   const user = useAuthStore((s) => s.user);
   const channelMessagesMap = useMessagesStore((s) => s.channelMessages);
   const dmMessagesMap = useMessagesStore((s) => s.dmMessages);
+  const messageStatus = useMessagesStore((s) => s.messageStatus);
   const setChannelMessages = useMessagesStore((s) => s.setChannelMessages);
   const setDMMessages = useMessagesStore((s) => s.setDMMessages);
 
@@ -169,7 +170,7 @@ export function MessageList() {
               <MessageBubble
                 message={msg.data}
                 isOwn={msg.isOwn}
-                status="sent"
+                status={messageStatus.get(msg.id) ?? 'sent'}
               />
             </div>
           );

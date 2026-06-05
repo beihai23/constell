@@ -13,6 +13,7 @@ interface UIState {
   setShowMemberList: (show: boolean) => void;
   toggleMemberList: () => void;
   setShowSearch: (show: boolean) => void;
+  toggleSearch: () => void;
   setOnline: (userId: string) => void;
   setOffline: (userId: string) => void;
   setWsStatus: (status: WSStatus) => void;
@@ -31,6 +32,7 @@ export const useUIStore = create<UIState>((set) => ({
   toggleMemberList: () =>
     set((state) => ({ showMemberList: !state.showMemberList })),
   setShowSearch: (show) => set({ showSearch: show }),
+  toggleSearch: () => set((state) => ({ showSearch: !state.showSearch })),
 
   setOnline: (userId) =>
     set((state) => {

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 /**
  * Left column icon rail (72px). Discord-style vertical strip showing:
  * - DM/Home button
- * - Joined community icons
+ * - Joined community icons (with unread badges)
  * - Create community button (placeholder)
  * - Current user avatar at bottom
  */
@@ -17,14 +17,29 @@ export function CommunityRail() {
   const navigate = useNavigate();
   const location = useLocation();
   const communities = useCommunitiesStore((s) => s.communities);
+  const channels = useCommunitiesStore((s) => s.channels);
   const channelUnreads = useUnreadStore((s) => s.channelUnreads);
   const user = useAuthStore((s) => s.user);
 
   const isDMView = location.pathname.startsWith('/@me');
   const currentCommunityId = getCommunityIdFromPath(location.pathname);
 
-  // Compute per-community unread totals
-  const communityUnreadTotals = computeCommunityUnreads(communities, channelUnreads);
+  // Compute per-community unread totals by cross-referencing
+  // channels Map (communityId -> Channel[]) with channelUnreads (channelId -> count)
+  const communityUnreadTotals = new Map<string, number>();
+  for (const [communityId, channelList] of channels) {
+    let total = 0;
+    for (const ch of channelList) {
+      total += channelUnreads.get(ch.id) ?? 0;
+    }
+    communityUnreadTotals.set(communityId, total);
+  }
+  // Also ensure communities with no channels yet still appear
+  for (const id of communities.keys()) {
+    if (!communityUnreadTotals.has(id)) {
+      communityUnreadTotals.set(id, 0);
+    }
+  }
 
   const communityList = Array.from(communities.values());
 
@@ -52,6 +67,7 @@ export function CommunityRail() {
             selected={selected}
             onClick={() => navigate(`/${community.id}`)}
             label={community.name}
+            badge={unread > 0 ? unread : undefined}
           >
             <span className="text-sm font-semibold text-[#cdd6f4]">
               {community.name.charAt(0).toUpperCase()}
@@ -111,26 +127,6 @@ function getCommunityIdFromPath(pathname: string): string | null {
   return first;
 }
 
-/** Sum channel unreads per community. */
-function computeCommunityUnreads(
-  communities: Map<string, { id: string; channels?: unknown }>,
-  channelUnreads: Map<string, number>,
-): Map<string, number> {
-  // We can't easily map channelId -> communityId from here, but the unreadStore
-  // stores channelId keys. The communitiesStore.channels map has communityId -> Channel[].
-  // For now, we just aggregate all channel unreads. A more precise implementation
-  // would cross-reference, but that requires both stores.
-  const totals = new Map<string, number>();
-  // Initialize all communities to 0
-  for (const id of communities.keys()) {
-    totals.set(id, 0);
-  }
-  // The ChannelList component will handle per-channel rendering.
-  // Here we just show a badge if there's any unread for the community.
-  // We'll use the unreadStore directly in ChannelList for per-channel badges.
-  return totals;
-}
-
 // ---------------------------------------------------------------------------
 // RailButton component
 // ---------------------------------------------------------------------------
@@ -139,10 +135,12 @@ interface RailButtonProps {
   selected: boolean;
   onClick: () => void;
   label: string;
+  /** If set, shows an unread badge with this count. */
+  badge?: number;
   children: React.ReactNode;
 }
 
-function RailButton({ selected, onClick, label, children }: RailButtonProps) {
+function RailButton({ selected, onClick, label, badge, children }: RailButtonProps) {
   return (
     <button
       className="group relative flex items-center justify-center"
@@ -168,6 +166,13 @@ function RailButton({ selected, onClick, label, children }: RailButtonProps) {
       >
         {children}
       </div>
+
+      {/* Unread badge */}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-[10px] font-bold leading-none text-white">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   );
 }
