@@ -233,9 +233,169 @@ func TestE2EUserJourney(t *testing.T) {
 	t.Log("========================================")
 }
 
+// TestE2ETokenRefresh verifies that a refresh token can be exchanged for new tokens.
+func TestE2ETokenRefresh(t *testing.T) {
+	user := registerUser(t)
+
+	// Refresh the token.
+	resp := doPost(t, apiURL("/api/v1/auth/refresh"), "", map[string]string{
+		"refresh_token": user.RefreshToken,
+	})
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	parseJSON(t, resp.Body, &result)
+
+	if result.AccessToken == "" {
+		t.Fatal("expected non-empty access_token after refresh")
+	}
+	if result.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh_token after refresh")
+	}
+	t.Logf("token refreshed: expires_at=%d", result.ExpiresAt)
+
+	// Verify the new token works.
+	profileResp := doGet(t, apiURL("/api/v1/users/"+user.UserID), result.AccessToken)
+	defer profileResp.Body.Close()
+	requireStatus(t, profileResp, http.StatusOK)
+	t.Log("new access token works for authenticated requests")
+}
+
+// TestE2EUserProfileUpdate verifies updating a user's profile.
+func TestE2EUserProfileUpdate(t *testing.T) {
+	user := registerUser(t)
+
+	newNickname := "Updated" + uniqueNickname()
+	resp := doPatch(t, apiURL("/api/v1/users/"+user.UserID), user.AccessToken, map[string]string{
+		"nickname": newNickname,
+	})
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+
+	// Verify the update.
+	profileResp := doGet(t, apiURL("/api/v1/users/"+user.UserID), user.AccessToken)
+	defer profileResp.Body.Close()
+	requireStatus(t, profileResp, http.StatusOK)
+
+	var profile struct {
+		Nickname string `json:"nickname"`
+	}
+	parseJSON(t, profileResp.Body, &profile)
+	if profile.Nickname != newNickname {
+		t.Fatalf("expected nickname %q, got %q", newNickname, profile.Nickname)
+	}
+	t.Logf("profile updated: nickname=%s", profile.Nickname)
+}
+
+// TestE2ECommunityMemberRemoval verifies removing a member from a community.
+func TestE2ECommunityMemberRemoval(t *testing.T) {
+	owner := registerUser(t)
+	member := registerUser(t)
+	thirdUser := registerUser(t)
+
+	community := createTestCommunity(t, owner.AccessToken)
+
+	// Both non-owners join.
+	for _, u := range []*testUser{member, thirdUser} {
+		joinResp := doPost(t, apiURL("/api/v1/communities/"+community.ID+"/members"), u.AccessToken, map[string]string{
+			"user_id": u.UserID,
+		})
+		requireStatus(t, joinResp, http.StatusCreated)
+		joinResp.Body.Close()
+	}
+
+	// Owner kicks the member from the community.
+	delResp := doDelete(t, apiURL("/api/v1/communities/"+community.ID+"/members/"+member.UserID), owner.AccessToken)
+	defer delResp.Body.Close()
+	requireStatus(t, delResp, http.StatusOK)
+
+	// Verify member is gone.
+	memListResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/members"), owner.AccessToken)
+	defer memListResp.Body.Close()
+	requireStatus(t, memListResp, http.StatusOK)
+
+	var memberList struct {
+		Members []struct {
+			UserID string `json:"user_id"`
+		} `json:"members"`
+	}
+	parseJSON(t, memListResp.Body, &memberList)
+	for _, m := range memberList.Members {
+		if m.UserID == member.UserID {
+			t.Fatal("expected member to be removed")
+		}
+	}
+	t.Log("member successfully removed from community")
+}
+
+// TestE2EChannelUpdate verifies updating a channel name.
+func TestE2EChannelUpdate(t *testing.T) {
+	user := registerUser(t)
+	community := createTestCommunity(t, user.AccessToken)
+	channel := createTestChannel(t, user.AccessToken, community.ID)
+
+	newName := "updated-" + channel.Name
+	resp := doPatch(t, apiURL("/api/v1/channels/"+channel.ID), user.AccessToken, map[string]string{
+		"name": newName,
+	})
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+
+	// Verify via channel list.
+	listResp := doGet(t, apiURL("/api/v1/communities/"+community.ID+"/channels"), user.AccessToken)
+	defer listResp.Body.Close()
+	requireStatus(t, listResp, http.StatusOK)
+
+	var channels struct {
+		Channels []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"channels"`
+	}
+	parseJSON(t, listResp.Body, &channels)
+	found := false
+	for _, ch := range channels.Channels {
+		if ch.ID == channel.ID && ch.Name == newName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("channel %s not found with name %q", channel.ID, newName)
+	}
+	t.Logf("channel updated to %q", newName)
+}
+
+// TestE2EUserBlock verifies the block/unblock user flow.
+// NOTE: Block/unblock is not yet implemented (returns 501). This test is
+// skipped until the feature is available.
+func TestE2EUserBlock(t *testing.T) {
+	t.Skip("block/unblock not yet implemented (501)")
+}
+
+// TestE2ELoginFlow verifies the complete login flow (register → logout → login).
+func TestE2ELoginFlow(t *testing.T) {
+	user := registerUser(t)
+
+	// Login with the same credentials.
+	loggedIn := loginUser(t, user.Email, user.Password)
+	if loggedIn.UserID != user.UserID {
+		t.Fatalf("expected user_id %s, got %s", user.UserID, loggedIn.UserID)
+	}
+	if loggedIn.AccessToken == "" {
+		t.Fatal("expected non-empty access_token after login")
+	}
+	t.Logf("login successful: user=%s", loggedIn.UserID)
+}
+
 // TestE2EHealthCheck verifies the API Gateway health endpoint.
 func TestE2EHealthCheck(t *testing.T) {
-	resp, err := http.Get(apiURL("/health"))
+	resp, err := http.Get(apiURL("/healthz"))
 	if err != nil {
 		t.Fatalf("gateway health check failed: %v", err)
 	}

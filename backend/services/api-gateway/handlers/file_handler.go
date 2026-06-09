@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	filev1 "github.com/constell/constell/backend/pkg/proto/file/v1"
 	filev1connect "github.com/constell/constell/backend/pkg/proto/file/v1/filev1connect"
@@ -59,6 +60,7 @@ func (h *FileHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cr := connect.NewRequest(&filev1.UploadFileRequest{
+		FileId:      uuid.New().String(),
 		Filename:    header.Filename,
 		ContentType: contentType,
 		Data:        data,

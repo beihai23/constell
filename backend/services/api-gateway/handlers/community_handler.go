@@ -377,12 +377,19 @@ func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cr := connect.NewRequest(&communityv1.LeaveCommunityRequest{
+	uid := chi.URLParam(r, "uid")
+	if uid == "" {
+		writeError(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.KickMemberRequest{
 		CommunityId: communityID,
+		UserId:      uid,
 	})
 	forwardAuth(r, cr)
 
-	resp, err := h.client.LeaveCommunity(r.Context(), cr)
+	resp, err := h.client.KickMember(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -432,17 +439,27 @@ func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 
 // sendMessageRequest is the JSON body for POST /api/v1/channels/:id/messages.
 type sendMessageRequest struct {
-	Content string `json:"content"`
+	Content string   `json:"content"`
+	FileIDs []string `json:"file_ids"`
+}
+
+// attachmentResponse is the JSON representation of a message attachment.
+type attachmentResponse struct {
+	ID          string `json:"file_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
 }
 
 // messageResponse is the JSON representation of a channel message.
 type messageResponse struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	AuthorID  string `json:"author_id"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID          string               `json:"id"`
+	ChannelID   string               `json:"channel_id"`
+	AuthorID    string               `json:"author_id"`
+	Content     string               `json:"content"`
+	CreatedAt   int64                `json:"created_at"`
+	UpdatedAt   int64                `json:"updated_at"`
+	Attachments []attachmentResponse `json:"attachments"`
 }
 
 // messageToResponse converts a proto ChannelMessage to a JSON response.
@@ -450,7 +467,7 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 	if m == nil {
 		return messageResponse{}
 	}
-	return messageResponse{
+	resp := messageResponse{
 		ID:        m.Id,
 		ChannelID: m.ChannelId,
 		AuthorID:  m.AuthorId,
@@ -458,6 +475,15 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
 	}
+	for _, a := range m.Attachments {
+		resp.Attachments = append(resp.Attachments, attachmentResponse{
+			ID:          a.FileId,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+		})
+	}
+	return resp
 }
 
 // SendMessage handles POST /api/v1/channels/:id/messages.
@@ -482,6 +508,7 @@ func (h *CommunityHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	cr := connect.NewRequest(&communityv1.SendMessageRequest{
 		ChannelId: channelID,
 		Content:   req.Content,
+		FileIds:   req.FileIDs,
 	})
 	forwardAuth(r, cr)
 

@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export function RegisterForm() {
   const { register } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +26,7 @@ export function RegisterForm() {
     setLoading(true);
     try {
       await register(username, email, password);
+      navigate('/@me', { replace: true });
     } catch {
       setError('Registration failed. Please try again.');
     } finally {

@@ -375,8 +375,8 @@ services:
 
   web:
     build:
-      context: ../../clients/web
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: clients/web/Dockerfile
     container_name: constell-web
     ports:
       - "3000:80"

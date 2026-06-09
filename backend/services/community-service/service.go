@@ -74,12 +74,15 @@ func (s *CommunityService) CreateCommunity(
 			fmt.Errorf("failed to add owner as member: %w", err))
 	}
 
-	// Create default @everyone role.
-	_, err = s.repo.CreateRole(ctx, community.ID, "@everyone", 0,
+	// Create default @everyone role and assign it to the owner.
+	defaultRole, err := s.repo.CreateRole(ctx, community.ID, "@everyone", 0,
 		PermissionReadMessages|PermissionSendMessages, 0)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal,
 			fmt.Errorf("failed to create default role: %w", err))
+	}
+	if err := s.repo.AssignRole(ctx, community.ID, callerID, defaultRole.ID); err != nil {
+		slog.Warn("failed to assign @everyone role to owner", "error", err)
 	}
 
 	s.communityCache.Set(ctx, community)
@@ -396,6 +399,15 @@ func (s *CommunityService) JoinCommunity(
 	}
 	s.membersCache.Invalidate(ctx, communityID)
 
+	// Auto-assign @everyone role to the new member.
+	if defaultRole, rerr := s.repo.GetDefaultRole(ctx, communityID); rerr != nil {
+		slog.Warn("failed to find @everyone role", "community_id", communityID, "error", rerr)
+	} else {
+		if err := s.repo.AssignRole(ctx, communityID, callerID, defaultRole.ID); err != nil {
+			slog.Warn("failed to assign @everyone role", "community_id", communityID, "user_id", callerID, "error", err)
+		}
+	}
+
 	// Publish member.joined event
 	s.publishMemberJoined(ctx, communityID, callerID, member.Nickname)
 
@@ -443,6 +455,62 @@ func (s *CommunityService) LeaveCommunity(
 	s.publishMemberLeft(ctx, communityID, callerID)
 
 	resp := connect.NewResponse(&pbv1.LeaveCommunityResponse{})
+	return resp, nil
+}
+
+// KickMember removes a target user from a community. Only the owner or a member
+// with KickMembers permission can kick.
+func (s *CommunityService) KickMember(
+	ctx context.Context,
+	req *connect.Request[pbv1.KickMemberRequest],
+) (*connect.Response[pbv1.KickMemberResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	communityID := strings.TrimSpace(req.Msg.CommunityId)
+	targetUserID := strings.TrimSpace(req.Msg.UserId)
+	if communityID == "" || targetUserID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("community_id and user_id are required"))
+	}
+
+	community, err := s.communityCache.Get(ctx, communityID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("community not found"))
+	}
+
+	// Self-leave: caller is removing themselves.
+	if targetUserID == callerID {
+		if community.OwnerID == callerID {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("community owner cannot leave; transfer ownership or delete"))
+		}
+	} else {
+		// Kicking someone else: owner can always kick, others need KickMembers permission.
+		if community.OwnerID != callerID {
+			if err := s.checkPermission(ctx, communityID, callerID, PermissionKickMembers); err != nil {
+				return nil, err
+			}
+		}
+		// Cannot kick the owner.
+		if targetUserID == community.OwnerID {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("cannot kick the community owner"))
+		}
+	}
+
+	if err := s.repo.RemoveMember(ctx, communityID, targetUserID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to kick member: %w", err))
+	}
+	s.membersCache.Invalidate(ctx, communityID)
+
+	// Publish member.left event
+	s.publishMemberLeft(ctx, communityID, targetUserID)
+
+	resp := connect.NewResponse(&pbv1.KickMemberResponse{})
 	return resp, nil
 }
 
@@ -554,11 +622,28 @@ func (s *CommunityService) SendMessage(
 	}
 	s.publishMessageCreated(ctx, msg.ID, channelID, ch.CommunityID, callerID, content, msg.CreatedAt.Unix(), memberIDs)
 
+	// Fetch attachments for the response.
+	var pbAttachments []*commonv1.Attachment
+	dbAttachments, aerr := s.repo.GetAttachmentsByMessage(ctx, "channel", msg.ID)
+	if aerr != nil {
+		slog.Warn("failed to fetch attachments for response", "error", aerr)
+	}
+	for _, a := range dbAttachments {
+		pbAttachments = append(pbAttachments, &commonv1.Attachment{
+			Id:          a.ID,
+			FileId:      a.FileID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+		})
+	}
+
 	resp := connect.NewResponse(&pbv1.SendMessageResponse{
 		Message: &pbv1.ChannelMessage{
 			Id: msg.ID, ChannelId: msg.ChannelID, AuthorId: msg.AuthorID,
 			Content: msg.Content, CreatedAt: msg.CreatedAt.Unix(),
 			UpdatedAt: msg.UpdatedAt.Unix(),
+			Attachments: pbAttachments,
 		},
 	})
 	return resp, nil

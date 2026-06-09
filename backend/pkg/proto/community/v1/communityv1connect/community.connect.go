@@ -69,6 +69,9 @@ const (
 	// CommunityServiceLeaveCommunityProcedure is the fully-qualified name of the CommunityService's
 	// LeaveCommunity RPC.
 	CommunityServiceLeaveCommunityProcedure = "/community.v1.CommunityService/LeaveCommunity"
+	// CommunityServiceKickMemberProcedure is the fully-qualified name of the CommunityService's
+	// KickMember RPC.
+	CommunityServiceKickMemberProcedure = "/community.v1.CommunityService/KickMember"
 	// CommunityServiceListMembersProcedure is the fully-qualified name of the CommunityService's
 	// ListMembers RPC.
 	CommunityServiceListMembersProcedure = "/community.v1.CommunityService/ListMembers"
@@ -97,6 +100,7 @@ type CommunityServiceClient interface {
 	// --- Membership ---
 	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
 	LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error)
+	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error)
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
@@ -186,6 +190,12 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(communityServiceMethods.ByName("LeaveCommunity")),
 			connect.WithClientOptions(opts...),
 		),
+		kickMember: connect.NewClient[v1.KickMemberRequest, v1.KickMemberResponse](
+			httpClient,
+			baseURL+CommunityServiceKickMemberProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("KickMember")),
+			connect.WithClientOptions(opts...),
+		),
 		listMembers: connect.NewClient[v1.ListMembersRequest, v1.ListMembersResponse](
 			httpClient,
 			baseURL+CommunityServiceListMembersProcedure,
@@ -221,6 +231,7 @@ type communityServiceClient struct {
 	listChannels    *connect.Client[v1.ListChannelsRequest, v1.ListChannelsResponse]
 	joinCommunity   *connect.Client[v1.JoinCommunityRequest, v1.JoinCommunityResponse]
 	leaveCommunity  *connect.Client[v1.LeaveCommunityRequest, v1.LeaveCommunityResponse]
+	kickMember      *connect.Client[v1.KickMemberRequest, v1.KickMemberResponse]
 	listMembers     *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	getMessages     *connect.Client[v1.GetMessagesRequest, v1.GetMessagesResponse]
@@ -286,6 +297,11 @@ func (c *communityServiceClient) LeaveCommunity(ctx context.Context, req *connec
 	return c.leaveCommunity.CallUnary(ctx, req)
 }
 
+// KickMember calls community.v1.CommunityService.KickMember.
+func (c *communityServiceClient) KickMember(ctx context.Context, req *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error) {
+	return c.kickMember.CallUnary(ctx, req)
+}
+
 // ListMembers calls community.v1.CommunityService.ListMembers.
 func (c *communityServiceClient) ListMembers(ctx context.Context, req *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error) {
 	return c.listMembers.CallUnary(ctx, req)
@@ -318,6 +334,7 @@ type CommunityServiceHandler interface {
 	// --- Membership ---
 	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
 	LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error)
+	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error)
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
@@ -403,6 +420,12 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 		connect.WithSchema(communityServiceMethods.ByName("LeaveCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
+	communityServiceKickMemberHandler := connect.NewUnaryHandler(
+		CommunityServiceKickMemberProcedure,
+		svc.KickMember,
+		connect.WithSchema(communityServiceMethods.ByName("KickMember")),
+		connect.WithHandlerOptions(opts...),
+	)
 	communityServiceListMembersHandler := connect.NewUnaryHandler(
 		CommunityServiceListMembersProcedure,
 		svc.ListMembers,
@@ -447,6 +470,8 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 			communityServiceJoinCommunityHandler.ServeHTTP(w, r)
 		case CommunityServiceLeaveCommunityProcedure:
 			communityServiceLeaveCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceKickMemberProcedure:
+			communityServiceKickMemberHandler.ServeHTTP(w, r)
 		case CommunityServiceListMembersProcedure:
 			communityServiceListMembersHandler.ServeHTTP(w, r)
 		case CommunityServiceSendMessageProcedure:
@@ -508,6 +533,10 @@ func (UnimplementedCommunityServiceHandler) JoinCommunity(context.Context, *conn
 
 func (UnimplementedCommunityServiceHandler) LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.LeaveCommunity is not implemented"))
+}
+
+func (UnimplementedCommunityServiceHandler) KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.KickMember is not implemented"))
 }
 
 func (UnimplementedCommunityServiceHandler) ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error) {

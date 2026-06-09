@@ -117,7 +117,7 @@ export class AuthManager {
       password,
     });
     this.storeTokens(res.access_token, res.refresh_token);
-    return res.user;
+    return res.user ?? this.userFromToken();
   }
 
   /**
@@ -126,12 +126,12 @@ export class AuthManager {
    */
   async register(username: string, email: string, password: string): Promise<User> {
     const res = await this.doFetch<AuthResponse>("/api/v1/auth/register", {
-      username,
+      nickname: username,
       email,
       password,
     });
     this.storeTokens(res.access_token, res.refresh_token);
-    return res.user;
+    return res.user ?? this.userFromToken();
   }
 
   /** Clear stored tokens, effectively logging out. */
@@ -218,6 +218,21 @@ export class AuthManager {
   private storeTokens(accessToken: string, refreshToken: string): void {
     this.storage.setItem(ACCESS_TOKEN_KEY, accessToken);
     this.storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  }
+
+  /** Derive the current user from the stored access token. */
+  private userFromToken(): User {
+    const token = this.storage.getItem(ACCESS_TOKEN_KEY) ?? "";
+    const payload = decodeJWTPayload(token);
+    return {
+      id: (payload.sub as string) ?? "",
+      email: (payload.email as string) ?? "",
+      nickname: (payload.nickname as string) ?? "",
+      avatarUrl: (payload.avatar_url as string) ?? "",
+      statusMessage: (payload.status_message as string) ?? "",
+      createdAt: ((payload.created_at as number) ?? 0),
+      updatedAt: ((payload.updated_at as number) ?? 0),
+    };
   }
 
   /**

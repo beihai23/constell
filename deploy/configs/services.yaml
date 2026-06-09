@@ -1,6 +1,5 @@
 # Constell 服务实例列表
 # StaticRegistry 从此文件加载实例地址。
-# docker-compose 下扩缩容: 修改此文件 → docker-compose up -d
 services:
   api-gateway:
     instances:
@@ -17,13 +16,11 @@ services:
 
   user-service:
     instances:
-      - addr: "user-service-1:9082"
-      - addr: "user-service-2:9082"
+      - addr: "user-service:9082"
 
   community-service:
     instances:
-      - addr: "community-service-1:9083"
-      - addr: "community-service-2:9083"
+      - addr: "community-service:9083"
 
   file-service:
     instances:

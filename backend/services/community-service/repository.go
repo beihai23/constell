@@ -364,6 +364,21 @@ func (r *Repository) AssignRole(ctx context.Context, communityID, userID, roleID
 	return nil
 }
 
+// GetDefaultRole returns the @everyone role for a community.
+func (r *Repository) GetDefaultRole(ctx context.Context, communityID string) (*RoleRow, error) {
+	var role RoleRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, community_id, name, color, permissions, position, created_at
+		 FROM roles WHERE community_id = $1 AND name = '@everyone'`,
+		communityID,
+	).Scan(&role.ID, &role.CommunityID, &role.Name, &role.Color,
+		&role.Permissions, &role.Position, &role.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get default role: %w", err)
+	}
+	return &role, nil
+}
+
 // ListRolesByCommunity lists all roles for a community.
 func (r *Repository) ListRolesByCommunity(ctx context.Context, communityID string) ([]*RoleRow, error) {
 	rows, err := r.pool.Query(ctx,
@@ -510,6 +525,28 @@ type AttachmentRow struct {
 	Filename    string
 	ContentType string
 	Size        int64
+}
+
+// GetAttachmentsByMessage retrieves attachments for a message.
+func (r *Repository) GetAttachmentsByMessage(ctx context.Context, messageType, messageID string) ([]*AttachmentRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, message_type, message_id, file_id, filename, content_type, size
+		 FROM attachments WHERE message_type = $1 AND message_id = $2`,
+		messageType, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("get attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []*AttachmentRow
+	for rows.Next() {
+		var a AttachmentRow
+		if err := rows.Scan(&a.ID, &a.MessageType, &a.MessageID, &a.FileID, &a.Filename, &a.ContentType, &a.Size); err != nil {
+			return nil, fmt.Errorf("scan attachment: %w", err)
+		}
+		attachments = append(attachments, &a)
+	}
+	return attachments, nil
 }
 
 // InsertAttachments inserts multiple attachment rows.

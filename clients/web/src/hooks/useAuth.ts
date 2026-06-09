@@ -42,6 +42,7 @@ export function useAuth() {
     } else {
       setUser(null);
     }
+    setLoading(false);
   }, [client, setUser, setLoading]);
 
   return { user, isAuthenticated, loading, login, register, logout, initAuth };

@@ -1,5 +1,6 @@
 .PHONY: proto-gen migrate-up migrate-down test docker-up docker-down build lint \
-        build/ws-gateway test/ws-gateway run/ws-gateway
+        build/ws-gateway test/ws-gateway run/ws-gateway \
+        test/e2e test/e2e/ws test/e2e/file test/e2e/playwright test/e2e/all
 
 # --- Buf / Protobuf ---
 proto-gen:
@@ -28,6 +29,31 @@ test/all:
 # Integration tests (requires Docker Compose running)
 test/integration:
 	cd backend/tests/integration && go test -v -count=1 -timeout 180s ./...
+
+# --- E2E Tests (requires Docker Compose running) ---
+
+# All Go E2E tests (backend API + WebSocket)
+test/e2e:
+	cd backend/tests/integration && go test -v -count=1 -timeout 300s ./...
+
+# WebSocket real-time E2E only
+test/e2e/ws:
+	cd backend/tests/integration && go test -v -count=1 -run TestWS -timeout 120s ./...
+
+# File upload/download E2E only
+test/e2e/file:
+	cd backend/tests/integration && go test -v -count=1 -run TestFile -timeout 120s ./...
+
+# Playwright browser E2E tests
+test/e2e/playwright:
+	cd clients/web && npx playwright test
+
+# Run all E2E tests (Go + Playwright)
+test/e2e/all:
+	@echo "=== Running Go Backend E2E Tests ==="
+	cd backend/tests/integration && go test -v -count=1 -timeout 300s ./...
+	@echo "=== Running Playwright Browser E2E Tests ==="
+	cd clients/web && npx playwright test
 
 # --- Build ---
 build:

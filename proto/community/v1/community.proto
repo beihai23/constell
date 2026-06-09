@@ -25,6 +25,7 @@ service CommunityService {
   // --- Membership ---
   rpc JoinCommunity(JoinCommunityRequest) returns (JoinCommunityResponse);
   rpc LeaveCommunity(LeaveCommunityRequest) returns (LeaveCommunityResponse);
+  rpc KickMember(KickMemberRequest) returns (KickMemberResponse);
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
 
   // --- Channel Messages ---
@@ -184,6 +185,13 @@ message LeaveCommunityRequest {
 }
 
 message LeaveCommunityResponse {}
+
+message KickMemberRequest {
+  string community_id = 1;
+  string user_id = 2;  // target user to kick
+}
+
+message KickMemberResponse {}
 
 message ListMembersRequest {
   string community_id = 1;

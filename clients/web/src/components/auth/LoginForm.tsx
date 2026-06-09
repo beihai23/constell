@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export function LoginForm() {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -17,6 +18,7 @@ export function LoginForm() {
     setLoading(true);
     try {
       await login(email, password);
+      navigate('/@me', { replace: true });
     } catch {
       setError('Invalid email or password');
     } finally {
