@@ -1,6 +1,18 @@
 .PHONY: proto-gen migrate-up migrate-down test docker-up docker-down build lint \
         build/ws-gateway test/ws-gateway run/ws-gateway \
+        run/auth-service run/user-service run/community-service run/file-service \
+        run/search-service run/notify-service run/api-gateway \
+        infra-up infra-down \
         test/e2e test/e2e/ws test/e2e/file test/e2e/playwright test/e2e/all
+
+# --- Common dev config ---
+# Docker maps infra to non-default ports to avoid conflicts with local installs.
+# When using infra-up, override these so services can connect.
+DEV_DATABASE_URL := postgres://constell:constell_dev@localhost:15432/constell?sslmode=disable
+DEV_REDIS_URL    := localhost:16379
+DEV_NATS_URL     := nats://localhost:4222
+DEV_MINIO_ENDPOINT := localhost:9000
+DEV_JWT_SECRET   := dev-secret-change-me
 
 # --- Buf / Protobuf ---
 proto-gen:
@@ -63,19 +75,98 @@ build/ws-gateway:
 	mkdir -p bin
 	cd backend/services/ws-gateway && go build -o ../../../bin/ws-gateway .
 
-# --- Run Locally ---
+# --- Run Locally (use infra-up first) ---
+run/auth-service:
+	cd backend/services/auth-service && \
+		PORT=9081 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		REDIS_URL=$(DEV_REDIS_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		go run .
+
+run/user-service:
+	cd backend/services/user-service && \
+		PORT=9082 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		REDIS_URL=$(DEV_REDIS_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		NATS_URL=$(DEV_NATS_URL) \
+		REGISTRY_TYPE=static \
+		SERVICES_CONFIG_PATH=deploy/configs/services.yaml \
+		go run .
+
+run/community-service:
+	cd backend/services/community-service && \
+		PORT=9083 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		REDIS_URL=$(DEV_REDIS_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		NATS_URL=$(DEV_NATS_URL) \
+		REGISTRY_TYPE=static \
+		SERVICES_CONFIG_PATH=deploy/configs/services.yaml \
+		go run .
+
+run/file-service:
+	cd backend/services/file-service && \
+		PORT=9084 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		MINIO_ENDPOINT=$(DEV_MINIO_ENDPOINT) \
+		MINIO_ACCESS_KEY=minioadmin \
+		MINIO_SECRET_KEY=minioadmin \
+		MINIO_BUCKET=constell \
+		MINIO_USE_SSL=false \
+		MINIO_BASE_URL=http://localhost:9000 \
+		go run .
+
+run/search-service:
+	cd backend/services/search-service && \
+		PORT=9085 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		go run .
+
+run/notify-service:
+	cd backend/services/notify-service && \
+		PORT=9086 \
+		DATABASE_URL=$(DEV_DATABASE_URL) \
+		REDIS_URL=$(DEV_REDIS_URL) \
+		NATS_URL=$(DEV_NATS_URL) \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		go run .
+
+run/api-gateway:
+	cd backend/services/api-gateway && \
+		GATEWAY_ADDR=:8080 \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
+		REGISTRY_TYPE=static \
+		SERVICES_CONFIG_PATH=deploy/configs/services.yaml \
+		go run .
+
 run/ws-gateway:
 	cd backend/services/ws-gateway && \
 		LISTEN_ADDR=:8081 \
-		REDIS_ADDR=localhost:6379 \
-		NATS_URL=nats://localhost:4222 \
+		REDIS_ADDR=$(DEV_REDIS_URL) \
+		NATS_URL=$(DEV_NATS_URL) \
 		USER_SERVICE_ADDR=http://localhost:9082 \
 		COMMUNITY_SERVICE_ADDR=http://localhost:9083 \
-		JWT_SECRET=dev-secret-change-me \
+		JWT_SECRET=$(DEV_JWT_SECRET) \
 		GATEWAY_ID=ws-gateway-local \
+		REGISTRY_TYPE=static \
+		SERVICES_CONFIG_PATH=deploy/configs/services.yaml \
 		go run .
 
 # --- Docker Compose ---
+
+# Start only infrastructure (postgres, redis, nats, minio, openobserve)
+infra-up:
+	docker compose -f deploy/docker/docker-compose.yml up -d postgres redis nats minio openobserve
+
+# Stop infrastructure
+infra-down:
+	docker compose -f deploy/docker/docker-compose.yml down
+
+# Start all services (infra + backend + web)
 docker-up:
 	docker compose -f deploy/docker/docker-compose.yml up -d
 

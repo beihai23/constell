@@ -19,8 +19,8 @@ export function LoginForm() {
     try {
       await login(email, password);
       navigate('/@me', { replace: true });
-    } catch {
-      setError('Invalid email or password');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid email or password');
     } finally {
       setLoading(false);
     }

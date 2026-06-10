@@ -11,9 +11,9 @@ export function useAuth() {
     try {
       const u = await client.login(email, password);
       setUser(u);
-    } catch {
+    } catch (err) {
       reset();
-      throw new Error('Login failed');
+      throw err instanceof Error ? err : new Error('Login failed');
     }
   }, [client, setUser, setLoading, reset]);
 
@@ -22,9 +22,9 @@ export function useAuth() {
     try {
       const u = await client.register(username, email, password);
       setUser(u);
-    } catch {
+    } catch (err) {
       reset();
-      throw new Error('Registration failed');
+      throw err instanceof Error ? err : new Error('Registration failed');
     }
   }, [client, setUser, setLoading, reset]);
 
