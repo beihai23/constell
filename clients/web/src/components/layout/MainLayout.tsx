@@ -5,11 +5,14 @@ import { ChannelList } from './ChannelList';
 import { ConnectionStatusBar } from './ConnectionStatusBar';
 import { SearchDialog } from '@/components/search/SearchDialog';
 import { useClientEvents } from '@/hooks/useClientEvents';
+import { useInitialData } from '@/hooks/useInitialData';
 import { useUIStore } from '@/stores/uiStore';
 
 export function MainLayout() {
   // Bridge SDK events to Zustand stores (called once at top level)
   useClientEvents();
+  // Load initial data (communities, channels, unreads) after login
+  useInitialData();
 
   const showSearch = useUIStore((s) => s.showSearch);
   const setShowSearch = useUIStore((s) => s.setShowSearch);

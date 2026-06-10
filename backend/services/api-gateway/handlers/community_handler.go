@@ -24,6 +24,41 @@ func NewCommunityHandler(client communityv1connect.CommunityServiceClient) *Comm
 
 // --- Community ---
 
+// ListCommunities handles GET /api/v1/communities.
+func (h *CommunityHandler) ListCommunities(w http.ResponseWriter, r *http.Request) {
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	cr := connect.NewRequest(&communityv1.ListCommunitiesRequest{
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListCommunities(r.Context(), cr)
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	communities := make([]communityResponse, 0, len(resp.Msg.Communities))
+	for _, c := range resp.Msg.Communities {
+		communities = append(communities, communityToResponse(c))
+	}
+
+	hasMore := false
+	if resp.Msg.Pagination != nil {
+		hasMore = resp.Msg.Pagination.HasMore
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items":    communities,
+		"has_more": hasMore,
+	})
+}
+
 // createCommunityRequest is the JSON body for POST /api/v1/communities.
 type createCommunityRequest struct {
 	Name        string `json:"name"`

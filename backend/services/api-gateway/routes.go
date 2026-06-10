@@ -101,6 +101,7 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 		})
 
 		// Community routes.
+		r.Get("/communities", communityHandler.ListCommunities)
 		r.Post("/communities", communityHandler.CreateCommunity)
 		r.Route("/communities/{id}", func(r chi.Router) {
 			r.Get("/", communityHandler.GetCommunity)

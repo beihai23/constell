@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useParams } from 'react-router';
+import { toast } from 'sonner';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -113,8 +114,7 @@ export function ChatInput() {
         textareaRef.current.style.height = 'auto';
       }
     } catch (err) {
-      // TODO: show error toast / retry
-      console.error('Failed to send message:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
       setSending(false);
     }

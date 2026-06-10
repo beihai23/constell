@@ -55,3 +55,4 @@ backend/go.work.sum
 
 # --- Docs tooling ---
 docs/.solomd/
+.gstack/

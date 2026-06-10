@@ -7,10 +7,12 @@ import MainPage from '@/pages/MainPage';
 import { DMList } from '@/components/dm/DMList';
 import { DMChat } from '@/components/chat/DMChat';
 import { ChannelView } from '@/components/chat/ChannelView';
+import { Toaster } from 'sonner';
 
 export default function App() {
   return (
     <ClientProvider>
+      <Toaster position="top-center" richColors />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

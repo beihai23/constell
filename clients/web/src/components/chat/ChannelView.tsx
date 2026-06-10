@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router';
+import { toast } from 'sonner';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
@@ -26,7 +27,7 @@ export function ChannelView() {
     client.getChannels(communityId).then((channels) => {
       setChannels(communityId, channels);
     }).catch(() => {
-      // Silently fail — channel list will be empty
+      toast.error('Failed to load channels');
     });
   }, [communityId, client, setChannels]);
 

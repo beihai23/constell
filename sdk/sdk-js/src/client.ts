@@ -426,14 +426,17 @@ export class ConstellClient {
   // -------------------------------------------------------------------------
 
   /** List all communities the user belongs to. */
-  async listCommunities(): Promise<Community[]> {
-    const raw = await this.rest.get<Record<string, unknown>[]>("/api/v1/servers");
-    return raw.map(mapCommunity);
+  async listCommunities(opts?: PageOptions): Promise<PageResult<Community>> {
+    const query = buildPageQuery(opts);
+    const raw = await this.rest.get<Record<string, unknown>>(
+      `/api/v1/communities${query}`,
+    );
+    return buildPageResult(raw, mapCommunity);
   }
 
   /** Create a new community. */
   async createCommunity(name: string, description?: string): Promise<Community> {
-    const raw = await this.rest.post<Record<string, unknown>>("/api/v1/servers", {
+    const raw = await this.rest.post<Record<string, unknown>>("/api/v1/communities", {
       name,
       description,
     });
@@ -442,17 +445,18 @@ export class ConstellClient {
 
   /** Get channels for a community. */
   async getChannels(communityId: string): Promise<Channel[]> {
-    const raw = await this.rest.get<Record<string, unknown>[]>(
-      `/api/v1/servers/${communityId}/channels`,
+    const raw = await this.rest.get<Record<string, unknown>>(
+      `/api/v1/communities/${communityId}/channels`,
     );
-    return raw.map(mapChannel);
+    const channels = (raw.channels ?? raw.items ?? []) as Record<string, unknown>[];
+    return channels.map(mapChannel);
   }
 
   /** Get members of a community (paginated). */
   async getMembers(communityId: string, opts?: PageOptions): Promise<PageResult<Member>> {
     const query = buildPageQuery(opts);
     const raw = await this.rest.get<Record<string, unknown>>(
-      `/api/v1/servers/${communityId}/members${query}`,
+      `/api/v1/communities/${communityId}/members${query}`,
     );
     return buildPageResult(raw, mapMember);
   }
@@ -460,7 +464,7 @@ export class ConstellClient {
   /** Add a member to a community. */
   async addMember(communityId: string, userId: string): Promise<Member> {
     const raw = await this.rest.post<Record<string, unknown>>(
-      `/api/v1/servers/${communityId}/members`,
+      `/api/v1/communities/${communityId}/members`,
       { user_id: userId },
     );
     return mapMember(raw);
