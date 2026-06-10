@@ -1,0 +1,143 @@
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// UserSearchResult holds a row from user search.
+type UserSearchResult struct {
+	ID        string
+	Nickname  string
+	AvatarURL string
+	Relevance float64
+}
+
+// MessageSearchResult holds a row from channel message search.
+type MessageSearchResult struct {
+	ID          string
+	ChannelID   string
+	CommunityID string
+	AuthorID    string
+	Content     string
+	CreatedAt   int64
+	Relevance   float64
+}
+
+// DMMessageSearchResult holds a row from DM message search.
+type DMMessageSearchResult struct {
+	ID             string
+	ConversationID string
+	PeerID         string
+	Content        string
+	CreatedAt      int64
+	Relevance      float64
+}
+
+// SearchRepository defines the database operations for search.
+type SearchRepository interface {
+	SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error)
+	SearchChannelMessages(ctx context.Context, query string, userID string, limit int) ([]MessageSearchResult, error)
+	SearchDMMessages(ctx context.Context, query string, userID string, limit int) ([]DMMessageSearchResult, error)
+}
+
+// Repository implements SearchRepository backed by PostgreSQL.
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepository creates a new Repository backed by the given connection pool.
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool}
+}
+
+// SearchUsers searches the users table by tsvector full-text search.
+// No permission filtering — all matching users are returned.
+func (r *Repository) SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.nickname, COALESCE(u.avatar_url, ''),
+		       ts_rank(u.search_vector, plainto_tsquery('simple', $1)) AS relevance
+		FROM users u
+		WHERE u.search_vector @@ plainto_tsquery('simple', $1)
+		ORDER BY relevance DESC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search users: %w", err)
+	}
+	defer rows.Close()
+
+	var results []UserSearchResult
+	for rows.Next() {
+		var r UserSearchResult
+		if err := rows.Scan(&r.ID, &r.Nickname, &r.AvatarURL, &r.Relevance); err != nil {
+			return nil, fmt.Errorf("scan user result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// SearchChannelMessages searches channel messages with community membership check.
+// Only returns messages from channels in communities where the user is a member.
+func (r *Repository) SearchChannelMessages(ctx context.Context, query string, userID string, limit int) ([]MessageSearchResult, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT cm.id, cm.channel_id, c.community_id, cm.author_id, cm.content,
+		       EXTRACT(EPOCH FROM cm.created_at)::bigint AS created_at,
+		       ts_rank(cm.search_vector, plainto_tsquery('simple', $1)) AS relevance
+		FROM channel_messages cm
+		JOIN channels c ON c.id = cm.channel_id
+		JOIN community_members mb ON mb.community_id = c.community_id AND mb.user_id = $2
+		WHERE cm.search_vector @@ plainto_tsquery('simple', $1)
+		ORDER BY relevance DESC
+		LIMIT $3
+	`, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search channel messages: %w", err)
+	}
+	defer rows.Close()
+
+	var results []MessageSearchResult
+	for rows.Next() {
+		var r MessageSearchResult
+		if err := rows.Scan(&r.ID, &r.ChannelID, &r.CommunityID, &r.AuthorID, &r.Content, &r.CreatedAt, &r.Relevance); err != nil {
+			return nil, fmt.Errorf("scan message result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// SearchDMMessages searches DM messages for conversations where the user is a participant.
+// Peer ID is computed as the other party in the conversation.
+func (r *Repository) SearchDMMessages(ctx context.Context, query string, userID string, limit int) ([]DMMessageSearchResult, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT dm.id, dm.conversation_id,
+		       CASE WHEN dc.user_a_id = $2 THEN dc.user_b_id ELSE dc.user_a_id END AS peer_id,
+		       dm.content,
+		       EXTRACT(EPOCH FROM dm.created_at)::bigint AS created_at,
+		       ts_rank(dm.search_vector, plainto_tsquery('simple', $1)) AS relevance
+		FROM dm_messages dm
+		JOIN dm_conversations dc ON dc.id = dm.conversation_id
+		WHERE dc.user_a_id = $2 OR dc.user_b_id = $2
+		  AND dm.search_vector @@ plainto_tsquery('simple', $1)
+		ORDER BY relevance DESC
+		LIMIT $3
+	`, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search dm messages: %w", err)
+	}
+	defer rows.Close()
+
+	var results []DMMessageSearchResult
+	for rows.Next() {
+		var r DMMessageSearchResult
+		if err := rows.Scan(&r.ID, &r.ConversationID, &r.PeerID, &r.Content, &r.CreatedAt, &r.Relevance); err != nil {
+			return nil, fmt.Errorf("scan dm message result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}

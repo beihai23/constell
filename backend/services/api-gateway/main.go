@@ -2,163 +2,169 @@ package main
 
 import (
 	"context"
-	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	authv1connect "github.com/constell/constell/backend/pkg/proto/auth/v1/authv1connect"
-	userv1connect "github.com/constell/constell/backend/pkg/proto/user/v1/userv1connect"
-	communityv1connect "github.com/constell/constell/backend/pkg/proto/community/v1/communityv1connect"
+	"github.com/constell/constell/backend/pkg/config"
+	"github.com/constell/constell/backend/pkg/health"
+	"github.com/constell/constell/backend/pkg/logging"
+	"github.com/constell/constell/backend/pkg/metrics"
+	pkgotel "github.com/constell/constell/backend/pkg/otel"
+	"github.com/constell/constell/backend/pkg/registry"
+	"github.com/constell/constell/backend/services/api-gateway/handlers"
 )
 
 // Config holds the gateway's configuration, populated from environment variables.
 type Config struct {
-	Addr                string
-	AuthServiceURL      string
-	UserServiceURL      string
-	CommunityServiceURL string
-	JWTSecret           string
-}
+	Addr      string `env:"ADDR" default:":8080"`
+	JWTSecret string `env:"JWT_SECRET" default:"dev-secret-change-me"`
+	Env       string `env:"ENV" default:"dev"`
 
-func loadConfig() Config {
-	return Config{
-		Addr:                getEnv("GATEWAY_ADDR", ":8080"),
-		AuthServiceURL:      getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
-		UserServiceURL:      getEnv("USER_SERVICE_URL", "http://localhost:8082"),
-		CommunityServiceURL: getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8083"),
-		JWTSecret:           getEnv("JWT_SECRET", "dev-secret-change-me"),
-	}
-}
+	AuthServiceURL      string `env:"AUTH_SERVICE_URL" default:"http://auth-service:9081"`
+	UserServiceURL      string `env:"USER_SERVICE_URL" default:"http://user-service:9082"`
+	CommunityServiceURL string `env:"COMMUNITY_SERVICE_URL" default:"http://community-service:9083"`
+	FileServiceURL      string `env:"FILE_SERVICE_URL" default:"http://file-service:9084"`
+	SearchServiceURL    string `env:"SEARCH_SERVICE_URL" default:"http://search-service:9085"`
+	NotifyServiceURL    string `env:"NOTIFY_SERVICE_URL" default:"http://notify-service:9086"`
 
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
+	RegistryType    string `env:"REGISTRY_TYPE" default:"static"`
+	ServicesCfgPath string `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
 
-// Clients holds the Connect-RPC clients for all backend services.
-type Clients struct {
-	Auth      authv1connect.AuthServiceClient
-	User      userv1connect.UserServiceClient
-	Community communityv1connect.CommunityServiceClient
-}
-
-func newClients(cfg Config) *Clients {
-	return &Clients{
-		Auth: authv1connect.NewAuthServiceClient(
-			http.DefaultClient,
-			cfg.AuthServiceURL,
-		),
-		User: userv1connect.NewUserServiceClient(
-			http.DefaultClient,
-			cfg.UserServiceURL,
-		),
-		Community: communityv1connect.NewCommunityServiceClient(
-			http.DefaultClient,
-			cfg.CommunityServiceURL,
-		),
-	}
+	OTelEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:"http://localhost:5080/api/default/v1/otlp"`
+	OTelInsecure string `env:"OTEL_EXPORTER_OTLP_INSECURE" default:"true"`
 }
 
 func main() {
-	cfg := loadConfig()
-	clients := newClients(cfg)
+	// 1. Load config
+	var cfg Config
+	config.NewLoader("").MustLoad(&cfg)
 
+	// 2. Init OTel
+	shutdown, err := pkgotel.Init(context.Background(), pkgotel.Config{
+		ServiceName: "api-gateway",
+		Environment: cfg.Env,
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure == "true",
+	})
+	if err != nil {
+		slog.Error("otel init", "error", err)
+	} else {
+		defer pkgotel.ShutdownWithTimeout(shutdown, 5*time.Second)
+	}
+
+	// 3. Init logging
+	logger := logging.Init("api-gateway", cfg.Env)
+	slog.SetDefault(logger)
+
+	// 4. Init Registry (optional)
+	var reg registry.Registry
+	if cfg.RegistryType == "static" {
+		staticReg, err := registry.NewStaticRegistry(registry.StaticConfig{
+			ConfigPath: cfg.ServicesCfgPath,
+		})
+		if err != nil {
+			slog.Warn("static registry unavailable, using env var URLs", "error", err)
+		} else {
+			reg = staticReg
+		}
+	}
+
+	// 5. Discover service addresses (with fallback to env vars)
+	authURL := cfg.AuthServiceURL
+	userURL := cfg.UserServiceURL
+	communityURL := cfg.CommunityServiceURL
+	fileURL := cfg.FileServiceURL
+	searchURL := cfg.SearchServiceURL
+	notifyURL := cfg.NotifyServiceURL
+
+	if reg != nil {
+		if instances, err := reg.Discover(context.Background(), "auth-service"); err == nil && len(instances) > 0 {
+			authURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "user-service"); err == nil && len(instances) > 0 {
+			userURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "community-service"); err == nil && len(instances) > 0 {
+			communityURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "file-service"); err == nil && len(instances) > 0 {
+			fileURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "search-service"); err == nil && len(instances) > 0 {
+			searchURL = "http://" + instances[0].Addr
+		}
+		if instances, err := reg.Discover(context.Background(), "notify-service"); err == nil && len(instances) > 0 {
+			notifyURL = "http://" + instances[0].Addr
+		}
+	}
+
+	slog.Info("service discovery",
+		"auth", authURL,
+		"user", userURL,
+		"community", communityURL,
+		"file", fileURL,
+		"search", searchURL,
+		"notify", notifyURL,
+	)
+
+	// 6. Init clients
+	clients := handlers.NewClientsFromURLs(authURL, userURL, communityURL, fileURL, searchURL, notifyURL)
+
+	// 7. Health checks
+	hc := health.NewChecker()
+
+	// 8. Wire up routes
 	r := chi.NewRouter()
 
-	// Global middleware.
+	// Global middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	// Register all routes.
+	// Health endpoints
+	r.Get("/healthz", hc.HealthzHandler())
+	r.Get("/readyz", hc.ReadyHandler())
+
+	// Register all REST routes
 	registerRoutes(r, clients, cfg.JWTSecret)
 
-	// HTTP server with graceful shutdown.
+	// Wrap mux with metrics middleware
+	var handler http.Handler = r
+	handler = metrics.HTTPMiddleware(handler)
+
+	// 9. Start HTTP server
 	srv := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      r,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start listening in a goroutine.
 	go func() {
-		log.Printf("API Gateway listening on %s", cfg.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		slog.Info("shutting down api-gateway...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("server shutdown", "error", err)
 		}
 	}()
 
-	// Wait for interrupt signal.
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("shutting down API Gateway...")
-
-	// Graceful shutdown with 10-second timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("forced shutdown: %v", err)
+	slog.Info("api-gateway listening", "addr", cfg.Addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Error("server error", "error", err)
+		os.Exit(1)
 	}
-
-	log.Println("API Gateway stopped")
-}
-
-// contextKey is an unexported type for context keys defined in this package.
-type contextKey string
-
-const userIDKey contextKey = "constell-user-id"
-
-// userIDFromContext extracts the user ID from the request context.
-// This value is set by the auth middleware.
-func userIDFromContext(r *http.Request) string {
-	val, _ := r.Context().Value(userIDKey).(string)
-	return val
-}
-
-// contextWithUserID returns a new context with the user ID embedded.
-func contextWithUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, userIDKey, userID)
-}
-
-// connectErrorToHTTP maps a Connect error code to an HTTP status code.
-func connectErrorToHTTP(err error) (int, string) {
-	if connectErr := new(connect.Error); errors.As(err, &connectErr) {
-		switch connectErr.Code() {
-		case connect.CodeInvalidArgument:
-			return http.StatusBadRequest, connectErr.Message()
-		case connect.CodeUnauthenticated:
-			return http.StatusUnauthorized, connectErr.Message()
-		case connect.CodePermissionDenied:
-			return http.StatusForbidden, connectErr.Message()
-		case connect.CodeNotFound:
-			return http.StatusNotFound, connectErr.Message()
-		case connect.CodeAlreadyExists:
-			return http.StatusConflict, connectErr.Message()
-		case connect.CodeInternal:
-			return http.StatusInternalServerError, "internal server error"
-		case connect.CodeUnavailable:
-			return http.StatusServiceUnavailable, "service unavailable"
-		case connect.CodeDeadlineExceeded:
-			return http.StatusGatewayTimeout, "request timeout"
-		default:
-			return http.StatusInternalServerError, connectErr.Message()
-		}
-	}
-	return http.StatusInternalServerError, err.Error()
 }

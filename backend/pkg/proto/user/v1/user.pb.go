@@ -454,6 +454,7 @@ type SendDMRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TargetUserId  string                 `protobuf:"bytes,1,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	FileIds       []string               `protobuf:"bytes,3,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -500,6 +501,13 @@ func (x *SendDMRequest) GetContent() string {
 		return x.Content
 	}
 	return ""
+}
+
+func (x *SendDMRequest) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
 }
 
 type SendDMResponse struct {
@@ -553,6 +561,7 @@ type DMMessage struct {
 	SenderId       string                 `protobuf:"bytes,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
 	Content        string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Attachments    []*v1.Attachment       `protobuf:"bytes,6,rep,name=attachments,proto3" json:"attachments,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -620,6 +629,13 @@ func (x *DMMessage) GetCreatedAt() int64 {
 		return x.CreatedAt
 	}
 	return 0
+}
+
+func (x *DMMessage) GetAttachments() []*v1.Attachment {
+	if x != nil {
+		return x.Attachments
+	}
+	return nil
 }
 
 type GetDMHistoryRequest struct {
@@ -770,19 +786,21 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\afriends\x18\x01 \x03(\v2\x14.common.v1.UserBriefR\afriends\x12=\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
-	"pagination\"O\n" +
+	"pagination\"j\n" +
 	"\rSendDMRequest\x12$\n" +
 	"\x0etarget_user_id\x18\x01 \x01(\tR\ftargetUserId\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\">\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
+	"\bfile_ids\x18\x03 \x03(\tR\afileIds\">\n" +
 	"\x0eSendDMResponse\x12,\n" +
-	"\amessage\x18\x01 \x01(\v2\x12.user.v1.DMMessageR\amessage\"\x9a\x01\n" +
+	"\amessage\x18\x01 \x01(\v2\x12.user.v1.DMMessageR\amessage\"\xd3\x01\n" +
 	"\tDMMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x1b\n" +
 	"\tsender_id\x18\x03 \x01(\tR\bsenderId\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\x03R\tcreatedAt\"y\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x127\n" +
+	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\"y\n" +
 	"\x13GetDMHistoryRequest\x12$\n" +
 	"\x0etarget_user_id\x18\x01 \x01(\tR\ftargetUserId\x12<\n" +
 	"\n" +
@@ -830,6 +848,7 @@ var file_user_v1_user_proto_goTypes = []any{
 	(*v1.PaginationRequest)(nil),  // 12: common.v1.PaginationRequest
 	(*v1.UserBrief)(nil),          // 13: common.v1.UserBrief
 	(*v1.PaginationResponse)(nil), // 14: common.v1.PaginationResponse
+	(*v1.Attachment)(nil),         // 15: common.v1.Attachment
 }
 var file_user_v1_user_proto_depIdxs = []int32{
 	4,  // 0: user.v1.UpdateProfileResponse.user:type_name -> user.v1.GetUserProfile
@@ -837,24 +856,25 @@ var file_user_v1_user_proto_depIdxs = []int32{
 	13, // 2: user.v1.ListFriendsResponse.friends:type_name -> common.v1.UserBrief
 	14, // 3: user.v1.ListFriendsResponse.pagination:type_name -> common.v1.PaginationResponse
 	9,  // 4: user.v1.SendDMResponse.message:type_name -> user.v1.DMMessage
-	12, // 5: user.v1.GetDMHistoryRequest.pagination:type_name -> common.v1.PaginationRequest
-	9,  // 6: user.v1.GetDMHistoryResponse.messages:type_name -> user.v1.DMMessage
-	14, // 7: user.v1.GetDMHistoryResponse.pagination:type_name -> common.v1.PaginationResponse
-	0,  // 8: user.v1.UserService.GetUser:input_type -> user.v1.GetUserRequest
-	2,  // 9: user.v1.UserService.UpdateProfile:input_type -> user.v1.UpdateProfileRequest
-	5,  // 10: user.v1.UserService.ListFriends:input_type -> user.v1.ListFriendsRequest
-	7,  // 11: user.v1.UserService.SendDM:input_type -> user.v1.SendDMRequest
-	10, // 12: user.v1.UserService.GetDMHistory:input_type -> user.v1.GetDMHistoryRequest
-	1,  // 13: user.v1.UserService.GetUser:output_type -> user.v1.GetUserResponse
-	3,  // 14: user.v1.UserService.UpdateProfile:output_type -> user.v1.UpdateProfileResponse
-	6,  // 15: user.v1.UserService.ListFriends:output_type -> user.v1.ListFriendsResponse
-	8,  // 16: user.v1.UserService.SendDM:output_type -> user.v1.SendDMResponse
-	11, // 17: user.v1.UserService.GetDMHistory:output_type -> user.v1.GetDMHistoryResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	15, // 5: user.v1.DMMessage.attachments:type_name -> common.v1.Attachment
+	12, // 6: user.v1.GetDMHistoryRequest.pagination:type_name -> common.v1.PaginationRequest
+	9,  // 7: user.v1.GetDMHistoryResponse.messages:type_name -> user.v1.DMMessage
+	14, // 8: user.v1.GetDMHistoryResponse.pagination:type_name -> common.v1.PaginationResponse
+	0,  // 9: user.v1.UserService.GetUser:input_type -> user.v1.GetUserRequest
+	2,  // 10: user.v1.UserService.UpdateProfile:input_type -> user.v1.UpdateProfileRequest
+	5,  // 11: user.v1.UserService.ListFriends:input_type -> user.v1.ListFriendsRequest
+	7,  // 12: user.v1.UserService.SendDM:input_type -> user.v1.SendDMRequest
+	10, // 13: user.v1.UserService.GetDMHistory:input_type -> user.v1.GetDMHistoryRequest
+	1,  // 14: user.v1.UserService.GetUser:output_type -> user.v1.GetUserResponse
+	3,  // 15: user.v1.UserService.UpdateProfile:output_type -> user.v1.UpdateProfileResponse
+	6,  // 16: user.v1.UserService.ListFriends:output_type -> user.v1.ListFriendsResponse
+	8,  // 17: user.v1.UserService.SendDM:output_type -> user.v1.SendDMResponse
+	11, // 18: user.v1.UserService.GetDMHistory:output_type -> user.v1.GetDMHistoryResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_user_proto_init() }

@@ -1,0 +1,9 @@
+.git
+.claude
+node_modules
+**/node_modules
+bin/
+*.test
+.tmp-e2e
+clients/web/dist
+clients/web/.tmp-e2e

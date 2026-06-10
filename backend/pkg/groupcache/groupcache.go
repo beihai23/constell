@@ -7,20 +7,24 @@ import (
 	"hash/fnv"
 	"sync"
 
+	"github.com/constell/constell/backend/pkg/registry"
 	"golang.org/x/sync/singleflight"
 )
 
 // Cache is a generic groupcache-like wrapper that provides consistent hashing,
 // local LRU caching, and singleflight deduplication.
 type Cache[K comparable, V any] struct {
-	mu        sync.RWMutex
-	capacity  int
-	peers     []string
-	peerSet   map[string]bool
-	filler    func(ctx context.Context, key K) (V, error)
-	lru       *lruCache[K, V]
-	sfGroup   singleflight.Group
-	sfKeyFunc func(key K) string
+	mu             sync.RWMutex
+	capacity       int
+	peers          []string
+	peerSet        map[string]bool
+	filler         func(ctx context.Context, key K) (V, error)
+	lru            *lruCache[K, V]
+	sfGroup        singleflight.Group
+	sfKeyFunc      func(key K) string
+	reg            registry.Registry   // optional Registry for dynamic peer updates
+	regServiceName string              // service name for Watch
+	regCancel      context.CancelFunc  // stop Watch
 }
 
 // Option configures a Cache instance.
@@ -38,6 +42,14 @@ func WithLocalCapacity[K comparable, V any](n int) Option[K, V] {
 func WithPeers[K comparable, V any](peers []string) Option[K, V] {
 	return func(c *Cache[K, V]) {
 		c.peers = peers
+	}
+}
+
+// WithRegistry sets a Registry instance for dynamic peer updates via Watch.
+func WithRegistry[K comparable, V any](reg registry.Registry, serviceName string) Option[K, V] {
+	return func(c *Cache[K, V]) {
+		c.reg = reg
+		c.regServiceName = serviceName
 	}
 }
 
@@ -70,6 +82,13 @@ func NewCache[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 
 	c.sfKeyFunc = func(key K) string {
 		return fmt.Sprintf("%v", key)
+	}
+
+	// If Registry is configured, start Watch to update peers dynamically.
+	if c.reg != nil && c.regServiceName != "" {
+		ctx, cancel := context.WithCancel(context.Background())
+		c.regCancel = cancel
+		go c.watchPeers(ctx)
 	}
 
 	return c
@@ -148,6 +167,43 @@ func (c *Cache[K, V]) Remove(ctx context.Context, key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Remove(key)
+}
+
+// watchPeers watches Registry instance changes and updates the peer list.
+func (c *Cache[K, V]) watchPeers(ctx context.Context) {
+	ch, err := c.reg.Watch(ctx, c.regServiceName)
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case instances, ok := <-ch:
+			if !ok {
+				return
+			}
+			peers := make([]string, 0, len(instances))
+			for _, inst := range instances {
+				peers = append(peers, inst.Addr)
+			}
+			peers = dedupePeers(peers)
+			c.mu.Lock()
+			c.peers = peers
+			c.peerSet = make(map[string]bool, len(peers))
+			for _, p := range peers {
+				c.peerSet[p] = true
+			}
+			c.mu.Unlock()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// Close stops the Registry Watch and releases resources.
+func (c *Cache[K, V]) Close() {
+	if c.regCancel != nil {
+		c.regCancel()
+	}
 }
 
 // resolveOwner uses consistent hashing to determine which node owns a key.

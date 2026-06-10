@@ -22,17 +22,17 @@ func NewCommunityHandler(client communityv1connect.CommunityServiceClient) *Comm
 	return &CommunityHandler{client: client}
 }
 
-// --- Server ---
+// --- Community ---
 
-// createServerRequest is the JSON body for POST /api/v1/servers.
-type createServerRequest struct {
+// createCommunityRequest is the JSON body for POST /api/v1/communities.
+type createCommunityRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IconURL     string `json:"icon_url"`
 }
 
-// serverResponse is the JSON representation of a server.
-type serverResponse struct {
+// communityResponse is the JSON representation of a community.
+type communityResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -42,12 +42,12 @@ type serverResponse struct {
 	UpdatedAt   int64  `json:"updated_at"`
 }
 
-// serverToResponse converts a proto Server to a JSON response.
-func serverToResponse(s *communityv1.Server) serverResponse {
+// communityToResponse converts a proto Community to a JSON response.
+func communityToResponse(s *communityv1.Community) communityResponse {
 	if s == nil {
-		return serverResponse{}
+		return communityResponse{}
 	}
-	return serverResponse{
+	return communityResponse{
 		ID:          s.Id,
 		Name:        s.Name,
 		Description: s.Description,
@@ -58,9 +58,9 @@ func serverToResponse(s *communityv1.Server) serverResponse {
 	}
 }
 
-// CreateServer handles POST /api/v1/servers.
-func (h *CommunityHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
-	var req createServerRequest
+// CreateCommunity handles POST /api/v1/communities.
+func (h *CommunityHandler) CreateCommunity(w http.ResponseWriter, r *http.Request) {
+	var req createCommunityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -71,76 +71,85 @@ func (h *CommunityHandler) CreateServer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp, err := h.client.CreateServer(r.Context(), connect.NewRequest(&communityv1.CreateServerRequest{
+	cr := connect.NewRequest(&communityv1.CreateCommunityRequest{
 		Name:        req.Name,
 		Description: req.Description,
 		IconUrl:     req.IconURL,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.CreateCommunity(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, serverToResponse(resp.Msg.Server))
+	writeJSON(w, http.StatusCreated, communityToResponse(resp.Msg.Community))
 }
 
-// GetServer handles GET /api/v1/servers/:id.
-func (h *CommunityHandler) GetServer(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+// GetCommunity handles GET /api/v1/communities/:id.
+func (h *CommunityHandler) GetCommunity(w http.ResponseWriter, r *http.Request) {
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
-	resp, err := h.client.GetServer(r.Context(), connect.NewRequest(&communityv1.GetServerRequest{
-		ServerId: serverID,
-	}))
+	cr := connect.NewRequest(&communityv1.GetCommunityRequest{
+		CommunityId: communityID,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetCommunity(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, serverToResponse(resp.Msg.Server))
+	writeJSON(w, http.StatusOK, communityToResponse(resp.Msg.Community))
 }
 
-// updateServerRequest is the JSON body for PATCH /api/v1/servers/:id.
-type updateServerRequest struct {
+// updateCommunityRequest is the JSON body for PATCH /api/v1/communities/:id.
+type updateCommunityRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IconURL     string `json:"icon_url"`
 }
 
-// UpdateServer handles PATCH /api/v1/servers/:id.
-func (h *CommunityHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+// UpdateCommunity handles PATCH /api/v1/communities/:id.
+func (h *CommunityHandler) UpdateCommunity(w http.ResponseWriter, r *http.Request) {
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
-	var req updateServerRequest
+	var req updateCommunityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	resp, err := h.client.UpdateServer(r.Context(), connect.NewRequest(&communityv1.UpdateServerRequest{
-		ServerId:    serverID,
+	cr := connect.NewRequest(&communityv1.UpdateCommunityRequest{
+		CommunityId: communityID,
 		Name:        req.Name,
 		Description: req.Description,
 		IconUrl:     req.IconURL,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.UpdateCommunity(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, serverToResponse(resp.Msg.Server))
+	writeJSON(w, http.StatusOK, communityToResponse(resp.Msg.Community))
 }
 
 // --- Channels ---
 
-// createChannelRequest is the JSON body for POST /api/v1/servers/:id/channels.
+// createChannelRequest is the JSON body for POST /api/v1/communities/:id/channels.
 type createChannelRequest struct {
 	Name     string `json:"name"`
 	Topic    string `json:"topic"`
@@ -150,14 +159,14 @@ type createChannelRequest struct {
 
 // channelResponse is the JSON representation of a channel.
 type channelResponse struct {
-	ID        string `json:"id"`
-	ServerID  string `json:"server_id"`
-	Name      string `json:"name"`
-	Topic     string `json:"topic"`
-	Type      string `json:"type"`
-	Position  int32  `json:"position"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID          string `json:"id"`
+	CommunityID string `json:"community_id"`
+	Name        string `json:"name"`
+	Topic       string `json:"topic"`
+	Type        string `json:"type"`
+	Position    int32  `json:"position"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 }
 
 // channelToResponse converts a proto Channel to a JSON response.
@@ -171,14 +180,14 @@ func channelToResponse(c *communityv1.Channel) channelResponse {
 		typeStr = "announcement"
 	}
 	return channelResponse{
-		ID:        c.Id,
-		ServerID:  c.ServerId,
-		Name:      c.Name,
-		Topic:     c.Topic,
-		Type:      typeStr,
-		Position:  c.Position,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:          c.Id,
+		CommunityID: c.CommunityId,
+		Name:        c.Name,
+		Topic:       c.Topic,
+		Type:        typeStr,
+		Position:    c.Position,
+		CreatedAt:   c.CreatedAt,
+		UpdatedAt:   c.UpdatedAt,
 	}
 }
 
@@ -192,11 +201,11 @@ func channelTypeFromString(s string) communityv1.ChannelType {
 	}
 }
 
-// CreateChannel handles POST /api/v1/servers/:id/channels.
+// CreateChannel handles POST /api/v1/communities/:id/channels.
 func (h *CommunityHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
@@ -211,13 +220,16 @@ func (h *CommunityHandler) CreateChannel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp, err := h.client.CreateChannel(r.Context(), connect.NewRequest(&communityv1.CreateChannelRequest{
-		ServerId: serverID,
-		Name:     req.Name,
-		Topic:    req.Topic,
-		Type:     channelTypeFromString(req.Type),
-		Position: req.Position,
-	}))
+	cr := connect.NewRequest(&communityv1.CreateChannelRequest{
+		CommunityId: communityID,
+		Name:        req.Name,
+		Topic:       req.Topic,
+		Type:        channelTypeFromString(req.Type),
+		Position:    req.Position,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.CreateChannel(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -226,24 +238,27 @@ func (h *CommunityHandler) CreateChannel(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, channelToResponse(resp.Msg.Channel))
 }
 
-// GetChannels handles GET /api/v1/servers/:id/channels.
+// GetChannels handles GET /api/v1/communities/:id/channels.
 func (h *CommunityHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.ListChannels(r.Context(), connect.NewRequest(&communityv1.ListChannelsRequest{
-		ServerId: serverID,
+	cr := connect.NewRequest(&communityv1.ListChannelsRequest{
+		CommunityId: communityID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListChannels(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -273,13 +288,16 @@ func (h *CommunityHandler) UpdateChannel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp, err := h.client.UpdateChannel(r.Context(), connect.NewRequest(&communityv1.UpdateChannelRequest{
+	cr := connect.NewRequest(&communityv1.UpdateChannelRequest{
 		ChannelId: channelID,
 		Name:      req.Name,
 		Topic:     req.Topic,
 		Type:      channelTypeFromString(req.Type),
 		Position:  req.Position,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.UpdateChannel(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -290,39 +308,39 @@ func (h *CommunityHandler) UpdateChannel(w http.ResponseWriter, r *http.Request)
 
 // --- Membership ---
 
-// addMemberRequest is the JSON body for POST /api/v1/servers/:id/members.
+// addMemberRequest is the JSON body for POST /api/v1/communities/:id/members.
 type addMemberRequest struct {
 	UserID string `json:"user_id"`
 }
 
-// memberResponse is the JSON representation of a server member.
+// memberResponse is the JSON representation of a community member.
 type memberResponse struct {
-	ServerID string   `json:"server_id"`
-	UserID   string   `json:"user_id"`
-	Nickname string   `json:"nickname"`
-	RoleIDs  []string `json:"role_ids"`
-	JoinedAt int64    `json:"joined_at"`
+	CommunityID string   `json:"community_id"`
+	UserID      string   `json:"user_id"`
+	Nickname    string   `json:"nickname"`
+	RoleIDs     []string `json:"role_ids"`
+	JoinedAt    int64    `json:"joined_at"`
 }
 
-// memberToResponse converts a proto ServerMember to a JSON response.
-func memberToResponse(m *communityv1.ServerMember) memberResponse {
+// memberToResponse converts a proto CommunityMember to a JSON response.
+func memberToResponse(m *communityv1.CommunityMember) memberResponse {
 	if m == nil {
 		return memberResponse{}
 	}
 	return memberResponse{
-		ServerID: m.ServerId,
-		UserID:   m.UserId,
-		Nickname: m.Nickname,
-		RoleIDs:  m.RoleIds,
-		JoinedAt: m.JoinedAt,
+		CommunityID: m.CommunityId,
+		UserID:      m.UserId,
+		Nickname:    m.Nickname,
+		RoleIDs:     m.RoleIds,
+		JoinedAt:    m.JoinedAt,
 	}
 }
 
-// AddMember handles POST /api/v1/servers/:id/members.
+// AddMember handles POST /api/v1/communities/:id/members.
 func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
@@ -337,9 +355,12 @@ func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.JoinServer(r.Context(), connect.NewRequest(&communityv1.JoinServerRequest{
-		ServerId: serverID,
-	}))
+	cr := connect.NewRequest(&communityv1.JoinCommunityRequest{
+		CommunityId: communityID,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.JoinCommunity(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -348,17 +369,27 @@ func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, memberToResponse(resp.Msg.Member))
 }
 
-// RemoveMember handles DELETE /api/v1/servers/:id/members/:uid.
+// RemoveMember handles DELETE /api/v1/communities/:id/members/:uid.
 func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
-	resp, err := h.client.LeaveServer(r.Context(), connect.NewRequest(&communityv1.LeaveServerRequest{
-		ServerId: serverID,
-	}))
+	uid := chi.URLParam(r, "uid")
+	if uid == "" {
+		writeError(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.KickMemberRequest{
+		CommunityId: communityID,
+		UserId:      uid,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.KickMember(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -368,24 +399,27 @@ func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
-// ListMembers handles GET /api/v1/servers/:id/members.
+// ListMembers handles GET /api/v1/communities/:id/members.
 func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
-	serverID := chi.URLParam(r, "id")
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "server id is required")
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
 		return
 	}
 
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.ListMembers(r.Context(), connect.NewRequest(&communityv1.ListMembersRequest{
-		ServerId: serverID,
+	cr := connect.NewRequest(&communityv1.ListMembersRequest{
+		CommunityId: communityID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListMembers(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -405,17 +439,27 @@ func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 
 // sendMessageRequest is the JSON body for POST /api/v1/channels/:id/messages.
 type sendMessageRequest struct {
-	Content string `json:"content"`
+	Content string   `json:"content"`
+	FileIDs []string `json:"file_ids"`
+}
+
+// attachmentResponse is the JSON representation of a message attachment.
+type attachmentResponse struct {
+	ID          string `json:"file_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
 }
 
 // messageResponse is the JSON representation of a channel message.
 type messageResponse struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	AuthorID  string `json:"author_id"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID          string               `json:"id"`
+	ChannelID   string               `json:"channel_id"`
+	AuthorID    string               `json:"author_id"`
+	Content     string               `json:"content"`
+	CreatedAt   int64                `json:"created_at"`
+	UpdatedAt   int64                `json:"updated_at"`
+	Attachments []attachmentResponse `json:"attachments"`
 }
 
 // messageToResponse converts a proto ChannelMessage to a JSON response.
@@ -423,7 +467,7 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 	if m == nil {
 		return messageResponse{}
 	}
-	return messageResponse{
+	resp := messageResponse{
 		ID:        m.Id,
 		ChannelID: m.ChannelId,
 		AuthorID:  m.AuthorId,
@@ -431,6 +475,15 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
 	}
+	for _, a := range m.Attachments {
+		resp.Attachments = append(resp.Attachments, attachmentResponse{
+			ID:          a.FileId,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+		})
+	}
+	return resp
 }
 
 // SendMessage handles POST /api/v1/channels/:id/messages.
@@ -452,10 +505,14 @@ func (h *CommunityHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.SendMessage(r.Context(), connect.NewRequest(&communityv1.SendMessageRequest{
+	cr := connect.NewRequest(&communityv1.SendMessageRequest{
 		ChannelId: channelID,
 		Content:   req.Content,
-	}))
+		FileIds:   req.FileIDs,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.SendMessage(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -475,13 +532,16 @@ func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.GetMessages(r.Context(), connect.NewRequest(&communityv1.GetMessagesRequest{
+	cr := connect.NewRequest(&communityv1.GetMessagesRequest{
 		ChannelId: channelID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetMessages(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return

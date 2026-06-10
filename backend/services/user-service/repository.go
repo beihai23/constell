@@ -316,3 +316,28 @@ func UnmarshalRelation(data []byte) (*RelationRow, error) {
 	}
 	return &rel, nil
 }
+
+// AttachmentRow represents a row from the attachments table.
+type AttachmentRow struct {
+	ID          string
+	MessageType string
+	MessageID   string
+	FileID      string
+	Filename    string
+	ContentType string
+	Size        int64
+}
+
+// InsertAttachments inserts multiple attachment rows.
+func (r *Repository) InsertAttachments(ctx context.Context, attachments []*AttachmentRow) error {
+	for _, a := range attachments {
+		_, err := r.pool.Exec(ctx,
+			`INSERT INTO attachments (id, message_type, message_id, file_id, filename, content_type, size)
+			 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)`,
+			a.MessageType, a.MessageID, a.FileID, a.Filename, a.ContentType, a.Size)
+		if err != nil {
+			return fmt.Errorf("insert attachment: %w", err)
+		}
+	}
+	return nil
+}

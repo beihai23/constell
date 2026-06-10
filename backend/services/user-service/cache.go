@@ -7,6 +7,7 @@ import (
 	"log"
 
 	groupcache "github.com/constell/constell/backend/pkg/groupcache"
+	"github.com/constell/constell/backend/pkg/registry"
 )
 
 // UserCacheReader defines the read interface for the user cache.
@@ -37,10 +38,9 @@ type UserCache struct {
 }
 
 // NewUserCache creates a UserCache that fills misses from the repository.
-func NewUserCache(localCapacity int, peers []string, repo *Repository) *UserCache {
-	c := groupcache.NewCache[string, []byte](
+func NewUserCache(localCapacity int, peers []string, reg registry.Registry, regServiceName string, repo *Repository) *UserCache {
+	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](localCapacity),
-		groupcache.WithPeers[string, []byte](peers),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
 			userID := key[len("user:"):]
 			user, err := repo.GetUserByID(ctx, userID)
@@ -49,7 +49,13 @@ func NewUserCache(localCapacity int, peers []string, repo *Repository) *UserCach
 			}
 			return MarshalUser(user)
 		}),
-	)
+	}
+	if reg != nil {
+		opts = append(opts, groupcache.WithRegistry[string, []byte](reg, regServiceName))
+	} else if len(peers) > 0 {
+		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
+	}
+	c := groupcache.NewCache[string, []byte](opts...)
 	return &UserCache{cache: c, repo: repo}
 }
 
@@ -87,10 +93,9 @@ type RelationCache struct {
 }
 
 // NewRelationCache creates a RelationCache that fills misses from the repository.
-func NewRelationCache(localCapacity int, peers []string, repo *Repository) *RelationCache {
-	c := groupcache.NewCache[string, []byte](
+func NewRelationCache(localCapacity int, peers []string, reg registry.Registry, regServiceName string, repo *Repository) *RelationCache {
+	opts := []groupcache.Option[string, []byte]{
 		groupcache.WithLocalCapacity[string, []byte](localCapacity),
-		groupcache.WithPeers[string, []byte](peers),
 		groupcache.WithFiller[string, []byte](func(ctx context.Context, key string) ([]byte, error) {
 			parts := splitRelationKey(key)
 			if len(parts) != 2 {
@@ -105,7 +110,13 @@ func NewRelationCache(localCapacity int, peers []string, repo *Repository) *Rela
 			}
 			return MarshalRelation(rel)
 		}),
-	)
+	}
+	if reg != nil {
+		opts = append(opts, groupcache.WithRegistry[string, []byte](reg, regServiceName))
+	} else if len(peers) > 0 {
+		opts = append(opts, groupcache.WithPeers[string, []byte](peers))
+	}
+	c := groupcache.NewCache[string, []byte](opts...)
 	return &RelationCache{cache: c, repo: repo}
 }
 

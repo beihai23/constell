@@ -42,9 +42,12 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.GetUser(r.Context(), connect.NewRequest(&userv1.GetUserRequest{
+	cr := connect.NewRequest(&userv1.GetUserRequest{
 		UserId: userID,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetUser(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -95,11 +98,14 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.UpdateProfile(r.Context(), connect.NewRequest(&userv1.UpdateProfileRequest{
+	cr := connect.NewRequest(&userv1.UpdateProfileRequest{
 		Nickname:      req.Nickname,
 		AvatarUrl:     req.AvatarURL,
 		StatusMessage: req.StatusMessage,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.UpdateProfile(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -134,12 +140,15 @@ func (h *UserHandler) ListFriends(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 20)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.ListFriends(r.Context(), connect.NewRequest(&userv1.ListFriendsRequest{
+	cr := connect.NewRequest(&userv1.ListFriendsRequest{
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.ListFriends(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -194,10 +203,13 @@ func (h *UserHandler) SendDM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.SendDM(r.Context(), connect.NewRequest(&userv1.SendDMRequest{
+	cr := connect.NewRequest(&userv1.SendDMRequest{
 		TargetUserId: req.TargetUserID,
 		Content:      req.Content,
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.SendDM(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return
@@ -225,13 +237,16 @@ func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
 
-	resp, err := h.client.GetDMHistory(r.Context(), connect.NewRequest(&userv1.GetDMHistoryRequest{
+	cr := connect.NewRequest(&userv1.GetDMHistoryRequest{
 		TargetUserId: peerID,
 		Pagination: &commonv1.PaginationRequest{
 			Limit:  limit,
 			Offset: offset,
 		},
-	}))
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetDMHistory(r.Context(), cr)
 	if err != nil {
 		writeConnectError(w, err)
 		return

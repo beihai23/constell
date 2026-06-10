@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -9,6 +10,16 @@ import (
 	"github.com/constell/constell/backend/pkg/jwt"
 	"github.com/constell/constell/backend/services/api-gateway/handlers"
 )
+
+// contextKey is an unexported type for context keys defined in this package.
+type contextKey string
+
+const userIDKey contextKey = "constell-user-id"
+
+// contextWithUserID returns a new context with the user ID embedded.
+func contextWithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
 
 // jwtAuthMiddleware validates the JWT token from the Authorization header
 // and stores the user ID in the request context.
@@ -52,17 +63,14 @@ func notImplemented() http.HandlerFunc {
 }
 
 // registerRoutes sets up all REST routes on the chi router.
-func registerRoutes(r chi.Router, clients *Clients, jwtSecret string) {
+func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 	// Create handler instances.
 	authHandler := handlers.NewAuthHandler(clients.Auth)
 	userHandler := handlers.NewUserHandler(clients.User)
 	communityHandler := handlers.NewCommunityHandler(clients.Community)
-
-	// Health check endpoint (no auth required).
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	fileHandler := handlers.NewFileHandler(clients.File)
+	searchHandler := handlers.NewSearchHandler(clients.Search)
+	notifyHandler := handlers.NewNotifyHandler(clients.Notify)
 
 	// Auth routes -- no JWT auth required.
 	r.Route("/api/v1/auth", func(r chi.Router) {
@@ -92,31 +100,44 @@ func registerRoutes(r chi.Router, clients *Clients, jwtSecret string) {
 			r.Get("/conversations", notImplemented()) // GetDMConversations RPC added in Task 16
 		})
 
-		// Server (community) routes.
-		r.Post("/servers", communityHandler.CreateServer)
-		r.Route("/servers/{id}", func(r chi.Router) {
-			r.Get("/", communityHandler.GetServer)
-			r.Patch("/", communityHandler.UpdateServer)
+		// Community routes.
+		r.Post("/communities", communityHandler.CreateCommunity)
+		r.Route("/communities/{id}", func(r chi.Router) {
+			r.Get("/", communityHandler.GetCommunity)
+			r.Patch("/", communityHandler.UpdateCommunity)
 
-			// Channels under a server.
+			// Channels under a community.
 			r.Post("/channels", communityHandler.CreateChannel)
 			r.Get("/channels", communityHandler.GetChannels)
 
-			// Members under a server.
+			// Members under a community.
 			r.Post("/members", communityHandler.AddMember)
 			r.Delete("/members/{uid}", communityHandler.RemoveMember)
 			r.Get("/members", communityHandler.ListMembers)
 
-			// Roles under a server.
+			// Roles under a community.
 			r.Post("/roles", notImplemented())                      // CreateRole RPC added in Task 17
 			r.Post("/members/{uid}/roles/{rid}", notImplemented()) // AssignRole RPC added in Task 17
 		})
 
-		// Channel routes (not nested under /servers).
+		// Channel routes (not nested under /communities).
 		r.Patch("/channels/{id}", communityHandler.UpdateChannel)
 
 		// Channel message routes.
 		r.Post("/channels/{id}/messages", communityHandler.SendMessage)
 		r.Get("/channels/{id}/messages", communityHandler.GetHistory)
+
+		// File routes.
+		r.Post("/files/upload", fileHandler.UploadFile)
+		r.Get("/files/{id}/url", fileHandler.GetFileURL)
+		r.Delete("/files/{id}", fileHandler.DeleteFile)
+
+		// Search route.
+		r.Get("/search", searchHandler.Search)
+
+		// Notify routes.
+		r.Get("/notify/unread", notifyHandler.GetUnread)
+		r.Post("/notify/dm/{conv_id}/read", notifyHandler.MarkDMRead)
+		r.Post("/notify/channel/{ch_id}/read", notifyHandler.MarkChannelRead)
 	})
 }

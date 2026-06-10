@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package search.v1;
+
+option go_package = "github.com/constell/constell/backend/pkg/proto/searchv1";
+
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+enum SearchType {
+  SEARCH_TYPE_UNSPECIFIED = 0;
+  SEARCH_TYPE_USERS = 1;
+  SEARCH_TYPE_MESSAGES = 2;
+  SEARCH_TYPE_DM_MESSAGES = 3;
+}
+
+message SearchRequest {
+  string query = 1;
+  repeated SearchType types = 2;
+  int32 limit = 3;
+}
+
+message SearchResponse {
+  repeated UserResult users = 1;
+  repeated MessageResult messages = 2;
+  repeated DMMessageResult dm_messages = 3;
+}
+
+message UserResult {
+  string id = 1;
+  string nickname = 2;
+  string avatar_url = 3;
+  double relevance = 4;
+}
+
+message MessageResult {
+  string id = 1;
+  string channel_id = 2;
+  string community_id = 3;
+  string author_id = 4;
+  string content = 5;
+  int64 created_at = 6;
+  double relevance = 7;
+}
+
+message DMMessageResult {
+  string id = 1;
+  string conversation_id = 2;
+  string peer_id = 3;
+  string content = 4;
+  int64 created_at = 5;
+  double relevance = 6;
+}

@@ -1,6 +1,6 @@
 # Constell — 实施计划总览
 
-基于架构设计规格 `docs/superpowers/specs/2026-05-29-constell-architecture-design.md`，拆分为 5 个阶段计划。
+基于架构设计规格 `docs/superpowers/specs/2026-05-29-constell-architecture-design.md`，拆分为 6 个阶段计划。
 
 每个计划产出可独立运行、测试、演示的软件。后续计划依赖前序计划的产出。
 
@@ -31,11 +31,34 @@
 
 ---
 
-## Plan 2: WS Gateway — 实时通信
+## Plan 2: 服务治理
+
+**目标：** 统一的服务发现、配置管理、健康检查和可观测性。
+
+**前置：** Plan 1
+
+**涉及包：** pkg/registry, pkg/config, pkg/health, pkg/otel, pkg/logging, pkg/metrics
+
+**产出物：**
+- Registry 接口 + StaticRegistry（docker-compose）+ K8sRegistry（build-tagged）
+- 统一配置加载器（环境变量 > yaml > defaults）
+- 健康检查端点（healthz / readyz）
+- OTel 可观测性（slog + Prometheus metrics + 分布式追踪 → OpenObserve）
+- services.yaml 服务实例配置
+- docker-compose 更新（healthcheck + openobserve + OTel）
+- 所有现有服务迁移到治理包
+
+**验证方式：** Docker Compose 启动所有服务，OpenObserve UI 可查看日志/指标/追踪
+
+**预估 Tasks：** 16 个
+
+---
+
+## Plan 3: WS Gateway — 实时通信
 
 **目标：** WebSocket 实时消息推送，完整的 IM 体验。
 
-**前置：** Plan 1
+**前置：** Plan 2
 
 **涉及服务：** WS Gateway
 
@@ -55,11 +78,11 @@
 
 ---
 
-## Plan 3: File Service + Search Service + Notify Service
+## Plan 4: File Service + Search Service + Notify Service
 
 **目标：** 文件上传/下载、全文搜索、推送通知和未读计数。
 
-**前置：** Plan 2
+**前置：** Plan 3
 
 **涉及服务：** File Svc, Search Svc, Notify Svc
 
@@ -76,11 +99,11 @@
 
 ---
 
-## Plan 4: Web 客户端
+## Plan 5: Web 客户端
 
 **目标：** 可用的 Web IM 应用。
 
-**前置：** Plan 3
+**前置：** Plan 4
 
 **涉及服务：** Web 前端, SDK-JS
 
@@ -97,11 +120,11 @@
 
 ---
 
-## Plan 5: SDK (Go + KMP)
+## Plan 6: SDK (Go + KMP)
 
 **目标：** 提供 Go SDK 和 Kotlin Multiplatform SDK，支持 Bot 和移动端接入。
 
-**前置：** Plan 4
+**前置：** Plan 5
 
 **涉及服务：** SDK-Go, SDK-KMP
 
@@ -122,16 +145,19 @@
 Plan 1 (基础设施+核心)
   │
   ▼
-Plan 2 (WS Gateway)
+Plan 2 (服务治理)
   │
   ▼
-Plan 3 (File+Search+Notify)
+Plan 3 (WS Gateway)
   │
   ▼
-Plan 4 (Web 客户端)
+Plan 4 (File+Search+Notify)
   │
   ▼
-Plan 5 (SDK)
+Plan 5 (Web 客户端)
+  │
+  ▼
+Plan 6 (SDK)
 ```
 
 每个 Plan 完成后：

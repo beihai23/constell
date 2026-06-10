@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ServerRow represents a row from the servers table.
-type ServerRow struct {
+// CommunityRow represents a row from the communities table.
+type CommunityRow struct {
 	ID          string
 	Name        string
 	Description string
@@ -23,28 +23,28 @@ type ServerRow struct {
 
 // ChannelRow represents a row from the channels table.
 type ChannelRow struct {
-	ID        string
-	ServerID  string
-	Name      string
-	Topic     string
-	Type      string
-	Position  int32
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          string
+	CommunityID string
+	Name        string
+	Topic       string
+	Type        string
+	Position    int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
-// MemberRow represents a row from server_members.
+// MemberRow represents a row from community_members.
 type MemberRow struct {
-	ServerID string
-	UserID   string
-	Nickname string
-	JoinedAt time.Time
+	CommunityID string
+	UserID      string
+	Nickname    string
+	JoinedAt    time.Time
 }
 
 // RoleRow represents a row from roles.
 type RoleRow struct {
 	ID          string
-	ServerID    string
+	CommunityID string
 	Name        string
 	Color       int32
 	Permissions int64
@@ -72,115 +72,115 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// CreateServer inserts a new server and returns the full row.
-func (r *Repository) CreateServer(ctx context.Context, name, description, iconURL, ownerID string) (*ServerRow, error) {
-	var s ServerRow
+// CreateCommunity inserts a new community and returns the full row.
+func (r *Repository) CreateCommunity(ctx context.Context, name, description, iconURL, ownerID string) (*CommunityRow, error) {
+	var s CommunityRow
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO servers (name, description, icon_url, owner_id)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
+		`INSERT INTO communities (name, description, icon_url, owner_id)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
 		name, description, iconURL, ownerID,
 	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
 		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("create server: %w", err)
+		return nil, fmt.Errorf("create community: %w", err)
 	}
 	return &s, nil
 }
 
-// GetServer fetches a server by ID.
-func (r *Repository) GetServer(ctx context.Context, serverID string) (*ServerRow, error) {
-	var s ServerRow
+// GetCommunity fetches a community by ID.
+func (r *Repository) GetCommunity(ctx context.Context, communityID string) (*CommunityRow, error) {
+	var s CommunityRow
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, name, description, icon_url, owner_id, created_at, updated_at
-		 FROM servers WHERE id = $1`, serverID,
+			 FROM communities WHERE id = $1`, communityID,
 	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
 		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("server not found")
+			return nil, fmt.Errorf("community not found")
 		}
-		return nil, fmt.Errorf("query server: %w", err)
+		return nil, fmt.Errorf("query community: %w", err)
 	}
 	return &s, nil
 }
 
-// UpdateServer updates a server's fields.
-func (r *Repository) UpdateServer(ctx context.Context, serverID, name, description, iconURL string) (*ServerRow, error) {
-	var s ServerRow
+// UpdateCommunity updates a community's fields.
+func (r *Repository) UpdateCommunity(ctx context.Context, communityID, name, description, iconURL string) (*CommunityRow, error) {
+	var s CommunityRow
 	err := r.pool.QueryRow(ctx,
-		`UPDATE servers SET name = $2, description = $3, icon_url = $4, updated_at = now()
-		 WHERE id = $1
-		 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
-		serverID, name, description, iconURL,
+		`UPDATE communities SET name = $2, description = $3, icon_url = $4, updated_at = now()
+			 WHERE id = $1
+			 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
+		communityID, name, description, iconURL,
 	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
 		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("update server: %w", err)
+		return nil, fmt.Errorf("update community: %w", err)
 	}
 	return &s, nil
 }
 
-// DeleteServer deletes a server by ID.
-func (r *Repository) DeleteServer(ctx context.Context, serverID string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM servers WHERE id = $1`, serverID)
+// DeleteCommunity deletes a community by ID.
+func (r *Repository) DeleteCommunity(ctx context.Context, communityID string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM communities WHERE id = $1`, communityID)
 	if err != nil {
-		return fmt.Errorf("delete server: %w", err)
+		return fmt.Errorf("delete community: %w", err)
 	}
 	return nil
 }
 
-// ListServersByUser lists servers the user is a member of.
-func (r *Repository) ListServersByUser(ctx context.Context, userID string, limit int, cursor string) ([]*ServerRow, string, error) {
+// ListCommunitiesByUser lists communities the user is a member of.
+func (r *Repository) ListCommunitiesByUser(ctx context.Context, userID string, limit int, cursor string) ([]*CommunityRow, string, error) {
 	var args []interface{}
 	args = append(args, userID)
 	query := `
-		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.created_at, s.updated_at
-		FROM servers s JOIN server_members sm ON sm.server_id = s.id
-		WHERE sm.user_id = $1`
+			SELECT c.id, c.name, c.description, c.icon_url, c.owner_id, c.created_at, c.updated_at
+			FROM communities c JOIN community_members cm ON cm.community_id = c.id
+			WHERE cm.user_id = $1`
 
 	argIdx := 2
 	if cursor != "" {
-		query += fmt.Sprintf(` AND s.id > $%d`, argIdx)
+		query += fmt.Sprintf(` AND c.id > $%d`, argIdx)
 		args = append(args, cursor)
 		argIdx++
 	}
-	query += fmt.Sprintf(` ORDER BY s.id LIMIT $%d`, argIdx)
+	query += fmt.Sprintf(` ORDER BY c.id LIMIT $%d`, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, "", fmt.Errorf("list servers: %w", err)
+		return nil, "", fmt.Errorf("list communities: %w", err)
 	}
 	defer rows.Close()
 
-	var servers []*ServerRow
+	var communities []*CommunityRow
 	for rows.Next() {
-		var s ServerRow
+		var s CommunityRow
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL,
 			&s.OwnerID, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			return nil, "", fmt.Errorf("scan server: %w", err)
+			return nil, "", fmt.Errorf("scan community: %w", err)
 		}
-		servers = append(servers, &s)
+		communities = append(communities, &s)
 	}
 
 	var nextCursor string
-	if len(servers) > limit {
-		nextCursor = servers[limit-1].ID
-		servers = servers[:limit]
+	if len(communities) > limit {
+		nextCursor = communities[limit-1].ID
+		communities = communities[:limit]
 	}
-	return servers, nextCursor, nil
+	return communities, nextCursor, nil
 }
 
 // CreateChannel inserts a new channel.
-func (r *Repository) CreateChannel(ctx context.Context, serverID, name, topic, channelType string, position int32) (*ChannelRow, error) {
+func (r *Repository) CreateChannel(ctx context.Context, communityID, name, topic, channelType string, position int32) (*ChannelRow, error) {
 	var c ChannelRow
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO channels (server_id, name, topic, type, position)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, server_id, name, topic, type, position, created_at, updated_at`,
-		serverID, name, topic, channelType, position,
-	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+		`INSERT INTO channels (community_id, name, topic, type, position)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, community_id, name, topic, type, position, created_at, updated_at`,
+		communityID, name, topic, channelType, position,
+	).Scan(&c.ID, &c.CommunityID, &c.Name, &c.Topic, &c.Type, &c.Position,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create channel: %w", err)
@@ -192,9 +192,9 @@ func (r *Repository) CreateChannel(ctx context.Context, serverID, name, topic, c
 func (r *Repository) GetChannel(ctx context.Context, channelID string) (*ChannelRow, error) {
 	var c ChannelRow
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, server_id, name, topic, type, position, created_at, updated_at
-		 FROM channels WHERE id = $1`, channelID,
-	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+		`SELECT id, community_id, name, topic, type, position, created_at, updated_at
+			 FROM channels WHERE id = $1`, channelID,
+	).Scan(&c.ID, &c.CommunityID, &c.Name, &c.Topic, &c.Type, &c.Position,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -210,10 +210,10 @@ func (r *Repository) UpdateChannel(ctx context.Context, channelID, name, topic, 
 	var c ChannelRow
 	err := r.pool.QueryRow(ctx,
 		`UPDATE channels SET name = $2, topic = $3, type = $4, position = $5, updated_at = now()
-		 WHERE id = $1
-		 RETURNING id, server_id, name, topic, type, position, created_at, updated_at`,
+			 WHERE id = $1
+			 RETURNING id, community_id, name, topic, type, position, created_at, updated_at`,
 		channelID, name, topic, channelType, position,
-	).Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Type, &c.Position,
+	).Scan(&c.ID, &c.CommunityID, &c.Name, &c.Topic, &c.Type, &c.Position,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("update channel: %w", err)
@@ -230,11 +230,11 @@ func (r *Repository) DeleteChannel(ctx context.Context, channelID string) error 
 	return nil
 }
 
-// ListChannelsByServer lists channels in a server.
-func (r *Repository) ListChannelsByServer(ctx context.Context, serverID string) ([]*ChannelRow, error) {
+// ListChannelsByCommunity lists channels in a community.
+func (r *Repository) ListChannelsByCommunity(ctx context.Context, communityID string) ([]*ChannelRow, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, server_id, name, topic, type, position, created_at, updated_at
-		 FROM channels WHERE server_id = $1 ORDER BY position`, serverID)
+		`SELECT id, community_id, name, topic, type, position, created_at, updated_at
+			 FROM channels WHERE community_id = $1 ORDER BY position`, communityID)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
@@ -243,7 +243,7 @@ func (r *Repository) ListChannelsByServer(ctx context.Context, serverID string) 
 	var channels []*ChannelRow
 	for rows.Next() {
 		var c ChannelRow
-		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic,
+		if err := rows.Scan(&c.ID, &c.CommunityID, &c.Name, &c.Topic,
 			&c.Type, &c.Position, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan channel: %w", err)
 		}
@@ -252,18 +252,18 @@ func (r *Repository) ListChannelsByServer(ctx context.Context, serverID string) 
 	return channels, nil
 }
 
-// AddMember adds a user to a server.
-func (r *Repository) AddMember(ctx context.Context, serverID, userID string) (*MemberRow, error) {
+// AddMember adds a user to a community.
+func (r *Repository) AddMember(ctx context.Context, communityID, userID string) (*MemberRow, error) {
 	var m MemberRow
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO server_members (server_id, user_id)
-		 VALUES ($1, $2) ON CONFLICT (server_id, user_id) DO NOTHING
-		 RETURNING server_id, user_id, nickname, joined_at`,
-		serverID, userID,
-	).Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt)
+		`INSERT INTO community_members (community_id, user_id)
+			 VALUES ($1, $2) ON CONFLICT (community_id, user_id) DO NOTHING
+			 RETURNING community_id, user_id, nickname, joined_at`,
+		communityID, userID,
+	).Scan(&m.CommunityID, &m.UserID, &m.Nickname, &m.JoinedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return r.GetMember(ctx, serverID, userID)
+			return r.GetMember(ctx, communityID, userID)
 		}
 		return nil, fmt.Errorf("add member: %w", err)
 	}
@@ -271,13 +271,13 @@ func (r *Repository) AddMember(ctx context.Context, serverID, userID string) (*M
 }
 
 // GetMember fetches a member record.
-func (r *Repository) GetMember(ctx context.Context, serverID, userID string) (*MemberRow, error) {
+func (r *Repository) GetMember(ctx context.Context, communityID, userID string) (*MemberRow, error) {
 	var m MemberRow
 	err := r.pool.QueryRow(ctx,
-		`SELECT server_id, user_id, nickname, joined_at
-		 FROM server_members WHERE server_id = $1 AND user_id = $2`,
-		serverID, userID,
-	).Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt)
+		`SELECT community_id, user_id, nickname, joined_at
+			 FROM community_members WHERE community_id = $1 AND user_id = $2`,
+		communityID, userID,
+	).Scan(&m.CommunityID, &m.UserID, &m.Nickname, &m.JoinedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -287,22 +287,22 @@ func (r *Repository) GetMember(ctx context.Context, serverID, userID string) (*M
 	return &m, nil
 }
 
-// RemoveMember removes a user from a server.
-func (r *Repository) RemoveMember(ctx context.Context, serverID, userID string) error {
+// RemoveMember removes a user from a community.
+func (r *Repository) RemoveMember(ctx context.Context, communityID, userID string) error {
 	_, err := r.pool.Exec(ctx,
-		`DELETE FROM server_members WHERE server_id = $1 AND user_id = $2`,
-		serverID, userID)
+		`DELETE FROM community_members WHERE community_id = $1 AND user_id = $2`,
+		communityID, userID)
 	if err != nil {
 		return fmt.Errorf("remove member: %w", err)
 	}
 	return nil
 }
 
-// ListMembersByServer lists members with pagination.
-func (r *Repository) ListMembersByServer(ctx context.Context, serverID string, limit int, cursor string) ([]*MemberRow, string, error) {
+// ListMembersByCommunity lists members with pagination.
+func (r *Repository) ListMembersByCommunity(ctx context.Context, communityID string, limit int, cursor string) ([]*MemberRow, string, error) {
 	var args []interface{}
-	args = append(args, serverID)
-	query := `SELECT server_id, user_id, nickname, joined_at FROM server_members WHERE server_id = $1`
+	args = append(args, communityID)
+	query := `SELECT community_id, user_id, nickname, joined_at FROM community_members WHERE community_id = $1`
 
 	argIdx := 2
 	if cursor != "" {
@@ -322,7 +322,7 @@ func (r *Repository) ListMembersByServer(ctx context.Context, serverID string, l
 	var members []*MemberRow
 	for rows.Next() {
 		var m MemberRow
-		if err := rows.Scan(&m.ServerID, &m.UserID, &m.Nickname, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.CommunityID, &m.UserID, &m.Nickname, &m.JoinedAt); err != nil {
 			return nil, "", fmt.Errorf("scan member: %w", err)
 		}
 		members = append(members, &m)
@@ -337,14 +337,14 @@ func (r *Repository) ListMembersByServer(ctx context.Context, serverID string, l
 }
 
 // CreateRole inserts a new role.
-func (r *Repository) CreateRole(ctx context.Context, serverID, name string, color int32, permissions int64, position int32) (*RoleRow, error) {
+func (r *Repository) CreateRole(ctx context.Context, communityID, name string, color int32, permissions int64, position int32) (*RoleRow, error) {
 	var role RoleRow
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO roles (server_id, name, color, permissions, position)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, server_id, name, color, permissions, position, created_at`,
-		serverID, name, color, permissions, position,
-	).Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+		`INSERT INTO roles (community_id, name, color, permissions, position)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, community_id, name, color, permissions, position, created_at`,
+		communityID, name, color, permissions, position,
+	).Scan(&role.ID, &role.CommunityID, &role.Name, &role.Color,
 		&role.Permissions, &role.Position, &role.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create role: %w", err)
@@ -353,22 +353,37 @@ func (r *Repository) CreateRole(ctx context.Context, serverID, name string, colo
 }
 
 // AssignRole assigns a role to a member.
-func (r *Repository) AssignRole(ctx context.Context, serverID, userID, roleID string) error {
+func (r *Repository) AssignRole(ctx context.Context, communityID, userID, roleID string) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)
-		 ON CONFLICT (server_id, user_id, role_id) DO NOTHING`,
-		serverID, userID, roleID)
+		`INSERT INTO member_roles (community_id, user_id, role_id) VALUES ($1, $2, $3)
+			 ON CONFLICT (community_id, user_id, role_id) DO NOTHING`,
+		communityID, userID, roleID)
 	if err != nil {
 		return fmt.Errorf("assign role: %w", err)
 	}
 	return nil
 }
 
-// ListRolesByServer lists all roles for a server.
-func (r *Repository) ListRolesByServer(ctx context.Context, serverID string) ([]*RoleRow, error) {
+// GetDefaultRole returns the @everyone role for a community.
+func (r *Repository) GetDefaultRole(ctx context.Context, communityID string) (*RoleRow, error) {
+	var role RoleRow
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, community_id, name, color, permissions, position, created_at
+		 FROM roles WHERE community_id = $1 AND name = '@everyone'`,
+		communityID,
+	).Scan(&role.ID, &role.CommunityID, &role.Name, &role.Color,
+		&role.Permissions, &role.Position, &role.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get default role: %w", err)
+	}
+	return &role, nil
+}
+
+// ListRolesByCommunity lists all roles for a community.
+func (r *Repository) ListRolesByCommunity(ctx context.Context, communityID string) ([]*RoleRow, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, server_id, name, color, permissions, position, created_at
-		 FROM roles WHERE server_id = $1 ORDER BY position`, serverID)
+		`SELECT id, community_id, name, color, permissions, position, created_at
+			 FROM roles WHERE community_id = $1 ORDER BY position`, communityID)
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
@@ -377,7 +392,7 @@ func (r *Repository) ListRolesByServer(ctx context.Context, serverID string) ([]
 	var roles []*RoleRow
 	for rows.Next() {
 		var role RoleRow
-		if err := rows.Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+		if err := rows.Scan(&role.ID, &role.CommunityID, &role.Name, &role.Color,
 			&role.Permissions, &role.Position, &role.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan role: %w", err)
 		}
@@ -387,12 +402,12 @@ func (r *Repository) ListRolesByServer(ctx context.Context, serverID string) ([]
 }
 
 // ListMemberRoles lists roles assigned to a member.
-func (r *Repository) ListMemberRoles(ctx context.Context, serverID, userID string) ([]*RoleRow, error) {
+func (r *Repository) ListMemberRoles(ctx context.Context, communityID, userID string) ([]*RoleRow, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT r.id, r.server_id, r.name, r.color, r.permissions, r.position, r.created_at
-		 FROM roles r JOIN member_roles mr ON mr.role_id = r.id
-		 WHERE mr.server_id = $1 AND mr.user_id = $2 ORDER BY r.position`,
-		serverID, userID)
+		`SELECT r.id, r.community_id, r.name, r.color, r.permissions, r.position, r.created_at
+			 FROM roles r JOIN member_roles mr ON mr.role_id = r.id
+			 WHERE mr.community_id = $1 AND mr.user_id = $2 ORDER BY r.position`,
+		communityID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list member roles: %w", err)
 	}
@@ -401,7 +416,7 @@ func (r *Repository) ListMemberRoles(ctx context.Context, serverID, userID strin
 	var roles []*RoleRow
 	for rows.Next() {
 		var role RoleRow
-		if err := rows.Scan(&role.ID, &role.ServerID, &role.Name, &role.Color,
+		if err := rows.Scan(&role.ID, &role.CommunityID, &role.Name, &role.Color,
 			&role.Permissions, &role.Position, &role.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan member role: %w", err)
 		}
@@ -415,8 +430,8 @@ func (r *Repository) InsertChannelMessage(ctx context.Context, channelID, author
 	var m ChannelMessageRow
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO channel_messages (channel_id, author_id, content)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, channel_id, author_id, content, created_at, updated_at`,
+			 VALUES ($1, $2, $3)
+			 RETURNING id, channel_id, author_id, content, created_at, updated_at`,
 		channelID, authorID, content,
 	).Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
@@ -430,7 +445,7 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 	var args []interface{}
 	args = append(args, channelID)
 	query := `SELECT id, channel_id, author_id, content, created_at, updated_at
-		FROM channel_messages WHERE channel_id = $1`
+			FROM channel_messages WHERE channel_id = $1`
 
 	argIdx := 2
 	if cursor != "" {
@@ -465,12 +480,12 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 	return messages, nextCursor, nil
 }
 
-// MarshalServer serializes a ServerRow to JSON.
-func MarshalServer(s *ServerRow) ([]byte, error) { return json.Marshal(s) }
+// MarshalCommunity serializes a CommunityRow to JSON.
+func MarshalCommunity(s *CommunityRow) ([]byte, error) { return json.Marshal(s) }
 
-// UnmarshalServer deserializes JSON to a ServerRow.
-func UnmarshalServer(data []byte) (*ServerRow, error) {
-	var s ServerRow
+// UnmarshalCommunity deserializes JSON to a CommunityRow.
+func UnmarshalCommunity(data []byte) (*CommunityRow, error) {
+	var s CommunityRow
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
@@ -499,4 +514,51 @@ func UnmarshalRoles(data []byte) ([]*RoleRow, error) {
 		return nil, err
 	}
 	return roles, nil
+}
+
+// AttachmentRow represents a row from the attachments table.
+type AttachmentRow struct {
+	ID          string
+	MessageType string
+	MessageID   string
+	FileID      string
+	Filename    string
+	ContentType string
+	Size        int64
+}
+
+// GetAttachmentsByMessage retrieves attachments for a message.
+func (r *Repository) GetAttachmentsByMessage(ctx context.Context, messageType, messageID string) ([]*AttachmentRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, message_type, message_id, file_id, filename, content_type, size
+		 FROM attachments WHERE message_type = $1 AND message_id = $2`,
+		messageType, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("get attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []*AttachmentRow
+	for rows.Next() {
+		var a AttachmentRow
+		if err := rows.Scan(&a.ID, &a.MessageType, &a.MessageID, &a.FileID, &a.Filename, &a.ContentType, &a.Size); err != nil {
+			return nil, fmt.Errorf("scan attachment: %w", err)
+		}
+		attachments = append(attachments, &a)
+	}
+	return attachments, nil
+}
+
+// InsertAttachments inserts multiple attachment rows.
+func (r *Repository) InsertAttachments(ctx context.Context, attachments []*AttachmentRow) error {
+	for _, a := range attachments {
+		_, err := r.pool.Exec(ctx,
+			`INSERT INTO attachments (id, message_type, message_id, file_id, filename, content_type, size)
+				 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)`,
+			a.MessageType, a.MessageID, a.FileID, a.Filename, a.ContentType, a.Size)
+		if err != nil {
+			return fmt.Errorf("insert attachment: %w", err)
+		}
+	}
+	return nil
 }

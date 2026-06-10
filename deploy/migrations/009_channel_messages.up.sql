@@ -1,4 +1,4 @@
--- Messages in server channels
+-- Messages in community channels
 CREATE TABLE channel_messages (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     channel_id  UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,

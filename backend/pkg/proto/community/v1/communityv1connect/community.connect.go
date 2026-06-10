@@ -33,21 +33,21 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// CommunityServiceCreateServerProcedure is the fully-qualified name of the CommunityService's
-	// CreateServer RPC.
-	CommunityServiceCreateServerProcedure = "/community.v1.CommunityService/CreateServer"
-	// CommunityServiceGetServerProcedure is the fully-qualified name of the CommunityService's
-	// GetServer RPC.
-	CommunityServiceGetServerProcedure = "/community.v1.CommunityService/GetServer"
-	// CommunityServiceUpdateServerProcedure is the fully-qualified name of the CommunityService's
-	// UpdateServer RPC.
-	CommunityServiceUpdateServerProcedure = "/community.v1.CommunityService/UpdateServer"
-	// CommunityServiceDeleteServerProcedure is the fully-qualified name of the CommunityService's
-	// DeleteServer RPC.
-	CommunityServiceDeleteServerProcedure = "/community.v1.CommunityService/DeleteServer"
-	// CommunityServiceListServersProcedure is the fully-qualified name of the CommunityService's
-	// ListServers RPC.
-	CommunityServiceListServersProcedure = "/community.v1.CommunityService/ListServers"
+	// CommunityServiceCreateCommunityProcedure is the fully-qualified name of the CommunityService's
+	// CreateCommunity RPC.
+	CommunityServiceCreateCommunityProcedure = "/community.v1.CommunityService/CreateCommunity"
+	// CommunityServiceGetCommunityProcedure is the fully-qualified name of the CommunityService's
+	// GetCommunity RPC.
+	CommunityServiceGetCommunityProcedure = "/community.v1.CommunityService/GetCommunity"
+	// CommunityServiceUpdateCommunityProcedure is the fully-qualified name of the CommunityService's
+	// UpdateCommunity RPC.
+	CommunityServiceUpdateCommunityProcedure = "/community.v1.CommunityService/UpdateCommunity"
+	// CommunityServiceDeleteCommunityProcedure is the fully-qualified name of the CommunityService's
+	// DeleteCommunity RPC.
+	CommunityServiceDeleteCommunityProcedure = "/community.v1.CommunityService/DeleteCommunity"
+	// CommunityServiceListCommunitiesProcedure is the fully-qualified name of the CommunityService's
+	// ListCommunities RPC.
+	CommunityServiceListCommunitiesProcedure = "/community.v1.CommunityService/ListCommunities"
 	// CommunityServiceCreateChannelProcedure is the fully-qualified name of the CommunityService's
 	// CreateChannel RPC.
 	CommunityServiceCreateChannelProcedure = "/community.v1.CommunityService/CreateChannel"
@@ -63,12 +63,15 @@ const (
 	// CommunityServiceListChannelsProcedure is the fully-qualified name of the CommunityService's
 	// ListChannels RPC.
 	CommunityServiceListChannelsProcedure = "/community.v1.CommunityService/ListChannels"
-	// CommunityServiceJoinServerProcedure is the fully-qualified name of the CommunityService's
-	// JoinServer RPC.
-	CommunityServiceJoinServerProcedure = "/community.v1.CommunityService/JoinServer"
-	// CommunityServiceLeaveServerProcedure is the fully-qualified name of the CommunityService's
-	// LeaveServer RPC.
-	CommunityServiceLeaveServerProcedure = "/community.v1.CommunityService/LeaveServer"
+	// CommunityServiceJoinCommunityProcedure is the fully-qualified name of the CommunityService's
+	// JoinCommunity RPC.
+	CommunityServiceJoinCommunityProcedure = "/community.v1.CommunityService/JoinCommunity"
+	// CommunityServiceLeaveCommunityProcedure is the fully-qualified name of the CommunityService's
+	// LeaveCommunity RPC.
+	CommunityServiceLeaveCommunityProcedure = "/community.v1.CommunityService/LeaveCommunity"
+	// CommunityServiceKickMemberProcedure is the fully-qualified name of the CommunityService's
+	// KickMember RPC.
+	CommunityServiceKickMemberProcedure = "/community.v1.CommunityService/KickMember"
 	// CommunityServiceListMembersProcedure is the fully-qualified name of the CommunityService's
 	// ListMembers RPC.
 	CommunityServiceListMembersProcedure = "/community.v1.CommunityService/ListMembers"
@@ -82,12 +85,12 @@ const (
 
 // CommunityServiceClient is a client for the community.v1.CommunityService service.
 type CommunityServiceClient interface {
-	// --- Server ---
-	CreateServer(context.Context, *connect.Request[v1.CreateServerRequest]) (*connect.Response[v1.CreateServerResponse], error)
-	GetServer(context.Context, *connect.Request[v1.GetServerRequest]) (*connect.Response[v1.GetServerResponse], error)
-	UpdateServer(context.Context, *connect.Request[v1.UpdateServerRequest]) (*connect.Response[v1.UpdateServerResponse], error)
-	DeleteServer(context.Context, *connect.Request[v1.DeleteServerRequest]) (*connect.Response[v1.DeleteServerResponse], error)
-	ListServers(context.Context, *connect.Request[v1.ListServersRequest]) (*connect.Response[v1.ListServersResponse], error)
+	// --- Community ---
+	CreateCommunity(context.Context, *connect.Request[v1.CreateCommunityRequest]) (*connect.Response[v1.CreateCommunityResponse], error)
+	GetCommunity(context.Context, *connect.Request[v1.GetCommunityRequest]) (*connect.Response[v1.GetCommunityResponse], error)
+	UpdateCommunity(context.Context, *connect.Request[v1.UpdateCommunityRequest]) (*connect.Response[v1.UpdateCommunityResponse], error)
+	DeleteCommunity(context.Context, *connect.Request[v1.DeleteCommunityRequest]) (*connect.Response[v1.DeleteCommunityResponse], error)
+	ListCommunities(context.Context, *connect.Request[v1.ListCommunitiesRequest]) (*connect.Response[v1.ListCommunitiesResponse], error)
 	// --- Channel ---
 	CreateChannel(context.Context, *connect.Request[v1.CreateChannelRequest]) (*connect.Response[v1.CreateChannelResponse], error)
 	GetChannel(context.Context, *connect.Request[v1.GetChannelRequest]) (*connect.Response[v1.GetChannelResponse], error)
@@ -95,8 +98,9 @@ type CommunityServiceClient interface {
 	DeleteChannel(context.Context, *connect.Request[v1.DeleteChannelRequest]) (*connect.Response[v1.DeleteChannelResponse], error)
 	ListChannels(context.Context, *connect.Request[v1.ListChannelsRequest]) (*connect.Response[v1.ListChannelsResponse], error)
 	// --- Membership ---
-	JoinServer(context.Context, *connect.Request[v1.JoinServerRequest]) (*connect.Response[v1.JoinServerResponse], error)
-	LeaveServer(context.Context, *connect.Request[v1.LeaveServerRequest]) (*connect.Response[v1.LeaveServerResponse], error)
+	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
+	LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error)
+	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error)
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
@@ -114,34 +118,34 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 	baseURL = strings.TrimRight(baseURL, "/")
 	communityServiceMethods := v1.File_community_v1_community_proto.Services().ByName("CommunityService").Methods()
 	return &communityServiceClient{
-		createServer: connect.NewClient[v1.CreateServerRequest, v1.CreateServerResponse](
+		createCommunity: connect.NewClient[v1.CreateCommunityRequest, v1.CreateCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceCreateServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("CreateServer")),
+			baseURL+CommunityServiceCreateCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("CreateCommunity")),
 			connect.WithClientOptions(opts...),
 		),
-		getServer: connect.NewClient[v1.GetServerRequest, v1.GetServerResponse](
+		getCommunity: connect.NewClient[v1.GetCommunityRequest, v1.GetCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceGetServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("GetServer")),
+			baseURL+CommunityServiceGetCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("GetCommunity")),
 			connect.WithClientOptions(opts...),
 		),
-		updateServer: connect.NewClient[v1.UpdateServerRequest, v1.UpdateServerResponse](
+		updateCommunity: connect.NewClient[v1.UpdateCommunityRequest, v1.UpdateCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceUpdateServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("UpdateServer")),
+			baseURL+CommunityServiceUpdateCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("UpdateCommunity")),
 			connect.WithClientOptions(opts...),
 		),
-		deleteServer: connect.NewClient[v1.DeleteServerRequest, v1.DeleteServerResponse](
+		deleteCommunity: connect.NewClient[v1.DeleteCommunityRequest, v1.DeleteCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceDeleteServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("DeleteServer")),
+			baseURL+CommunityServiceDeleteCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("DeleteCommunity")),
 			connect.WithClientOptions(opts...),
 		),
-		listServers: connect.NewClient[v1.ListServersRequest, v1.ListServersResponse](
+		listCommunities: connect.NewClient[v1.ListCommunitiesRequest, v1.ListCommunitiesResponse](
 			httpClient,
-			baseURL+CommunityServiceListServersProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("ListServers")),
+			baseURL+CommunityServiceListCommunitiesProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("ListCommunities")),
 			connect.WithClientOptions(opts...),
 		),
 		createChannel: connect.NewClient[v1.CreateChannelRequest, v1.CreateChannelResponse](
@@ -174,16 +178,22 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(communityServiceMethods.ByName("ListChannels")),
 			connect.WithClientOptions(opts...),
 		),
-		joinServer: connect.NewClient[v1.JoinServerRequest, v1.JoinServerResponse](
+		joinCommunity: connect.NewClient[v1.JoinCommunityRequest, v1.JoinCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceJoinServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("JoinServer")),
+			baseURL+CommunityServiceJoinCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("JoinCommunity")),
 			connect.WithClientOptions(opts...),
 		),
-		leaveServer: connect.NewClient[v1.LeaveServerRequest, v1.LeaveServerResponse](
+		leaveCommunity: connect.NewClient[v1.LeaveCommunityRequest, v1.LeaveCommunityResponse](
 			httpClient,
-			baseURL+CommunityServiceLeaveServerProcedure,
-			connect.WithSchema(communityServiceMethods.ByName("LeaveServer")),
+			baseURL+CommunityServiceLeaveCommunityProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("LeaveCommunity")),
+			connect.WithClientOptions(opts...),
+		),
+		kickMember: connect.NewClient[v1.KickMemberRequest, v1.KickMemberResponse](
+			httpClient,
+			baseURL+CommunityServiceKickMemberProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("KickMember")),
 			connect.WithClientOptions(opts...),
 		),
 		listMembers: connect.NewClient[v1.ListMembersRequest, v1.ListMembersResponse](
@@ -209,46 +219,47 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // communityServiceClient implements CommunityServiceClient.
 type communityServiceClient struct {
-	createServer  *connect.Client[v1.CreateServerRequest, v1.CreateServerResponse]
-	getServer     *connect.Client[v1.GetServerRequest, v1.GetServerResponse]
-	updateServer  *connect.Client[v1.UpdateServerRequest, v1.UpdateServerResponse]
-	deleteServer  *connect.Client[v1.DeleteServerRequest, v1.DeleteServerResponse]
-	listServers   *connect.Client[v1.ListServersRequest, v1.ListServersResponse]
-	createChannel *connect.Client[v1.CreateChannelRequest, v1.CreateChannelResponse]
-	getChannel    *connect.Client[v1.GetChannelRequest, v1.GetChannelResponse]
-	updateChannel *connect.Client[v1.UpdateChannelRequest, v1.UpdateChannelResponse]
-	deleteChannel *connect.Client[v1.DeleteChannelRequest, v1.DeleteChannelResponse]
-	listChannels  *connect.Client[v1.ListChannelsRequest, v1.ListChannelsResponse]
-	joinServer    *connect.Client[v1.JoinServerRequest, v1.JoinServerResponse]
-	leaveServer   *connect.Client[v1.LeaveServerRequest, v1.LeaveServerResponse]
-	listMembers   *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
-	sendMessage   *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
-	getMessages   *connect.Client[v1.GetMessagesRequest, v1.GetMessagesResponse]
+	createCommunity *connect.Client[v1.CreateCommunityRequest, v1.CreateCommunityResponse]
+	getCommunity    *connect.Client[v1.GetCommunityRequest, v1.GetCommunityResponse]
+	updateCommunity *connect.Client[v1.UpdateCommunityRequest, v1.UpdateCommunityResponse]
+	deleteCommunity *connect.Client[v1.DeleteCommunityRequest, v1.DeleteCommunityResponse]
+	listCommunities *connect.Client[v1.ListCommunitiesRequest, v1.ListCommunitiesResponse]
+	createChannel   *connect.Client[v1.CreateChannelRequest, v1.CreateChannelResponse]
+	getChannel      *connect.Client[v1.GetChannelRequest, v1.GetChannelResponse]
+	updateChannel   *connect.Client[v1.UpdateChannelRequest, v1.UpdateChannelResponse]
+	deleteChannel   *connect.Client[v1.DeleteChannelRequest, v1.DeleteChannelResponse]
+	listChannels    *connect.Client[v1.ListChannelsRequest, v1.ListChannelsResponse]
+	joinCommunity   *connect.Client[v1.JoinCommunityRequest, v1.JoinCommunityResponse]
+	leaveCommunity  *connect.Client[v1.LeaveCommunityRequest, v1.LeaveCommunityResponse]
+	kickMember      *connect.Client[v1.KickMemberRequest, v1.KickMemberResponse]
+	listMembers     *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
+	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	getMessages     *connect.Client[v1.GetMessagesRequest, v1.GetMessagesResponse]
 }
 
-// CreateServer calls community.v1.CommunityService.CreateServer.
-func (c *communityServiceClient) CreateServer(ctx context.Context, req *connect.Request[v1.CreateServerRequest]) (*connect.Response[v1.CreateServerResponse], error) {
-	return c.createServer.CallUnary(ctx, req)
+// CreateCommunity calls community.v1.CommunityService.CreateCommunity.
+func (c *communityServiceClient) CreateCommunity(ctx context.Context, req *connect.Request[v1.CreateCommunityRequest]) (*connect.Response[v1.CreateCommunityResponse], error) {
+	return c.createCommunity.CallUnary(ctx, req)
 }
 
-// GetServer calls community.v1.CommunityService.GetServer.
-func (c *communityServiceClient) GetServer(ctx context.Context, req *connect.Request[v1.GetServerRequest]) (*connect.Response[v1.GetServerResponse], error) {
-	return c.getServer.CallUnary(ctx, req)
+// GetCommunity calls community.v1.CommunityService.GetCommunity.
+func (c *communityServiceClient) GetCommunity(ctx context.Context, req *connect.Request[v1.GetCommunityRequest]) (*connect.Response[v1.GetCommunityResponse], error) {
+	return c.getCommunity.CallUnary(ctx, req)
 }
 
-// UpdateServer calls community.v1.CommunityService.UpdateServer.
-func (c *communityServiceClient) UpdateServer(ctx context.Context, req *connect.Request[v1.UpdateServerRequest]) (*connect.Response[v1.UpdateServerResponse], error) {
-	return c.updateServer.CallUnary(ctx, req)
+// UpdateCommunity calls community.v1.CommunityService.UpdateCommunity.
+func (c *communityServiceClient) UpdateCommunity(ctx context.Context, req *connect.Request[v1.UpdateCommunityRequest]) (*connect.Response[v1.UpdateCommunityResponse], error) {
+	return c.updateCommunity.CallUnary(ctx, req)
 }
 
-// DeleteServer calls community.v1.CommunityService.DeleteServer.
-func (c *communityServiceClient) DeleteServer(ctx context.Context, req *connect.Request[v1.DeleteServerRequest]) (*connect.Response[v1.DeleteServerResponse], error) {
-	return c.deleteServer.CallUnary(ctx, req)
+// DeleteCommunity calls community.v1.CommunityService.DeleteCommunity.
+func (c *communityServiceClient) DeleteCommunity(ctx context.Context, req *connect.Request[v1.DeleteCommunityRequest]) (*connect.Response[v1.DeleteCommunityResponse], error) {
+	return c.deleteCommunity.CallUnary(ctx, req)
 }
 
-// ListServers calls community.v1.CommunityService.ListServers.
-func (c *communityServiceClient) ListServers(ctx context.Context, req *connect.Request[v1.ListServersRequest]) (*connect.Response[v1.ListServersResponse], error) {
-	return c.listServers.CallUnary(ctx, req)
+// ListCommunities calls community.v1.CommunityService.ListCommunities.
+func (c *communityServiceClient) ListCommunities(ctx context.Context, req *connect.Request[v1.ListCommunitiesRequest]) (*connect.Response[v1.ListCommunitiesResponse], error) {
+	return c.listCommunities.CallUnary(ctx, req)
 }
 
 // CreateChannel calls community.v1.CommunityService.CreateChannel.
@@ -276,14 +287,19 @@ func (c *communityServiceClient) ListChannels(ctx context.Context, req *connect.
 	return c.listChannels.CallUnary(ctx, req)
 }
 
-// JoinServer calls community.v1.CommunityService.JoinServer.
-func (c *communityServiceClient) JoinServer(ctx context.Context, req *connect.Request[v1.JoinServerRequest]) (*connect.Response[v1.JoinServerResponse], error) {
-	return c.joinServer.CallUnary(ctx, req)
+// JoinCommunity calls community.v1.CommunityService.JoinCommunity.
+func (c *communityServiceClient) JoinCommunity(ctx context.Context, req *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error) {
+	return c.joinCommunity.CallUnary(ctx, req)
 }
 
-// LeaveServer calls community.v1.CommunityService.LeaveServer.
-func (c *communityServiceClient) LeaveServer(ctx context.Context, req *connect.Request[v1.LeaveServerRequest]) (*connect.Response[v1.LeaveServerResponse], error) {
-	return c.leaveServer.CallUnary(ctx, req)
+// LeaveCommunity calls community.v1.CommunityService.LeaveCommunity.
+func (c *communityServiceClient) LeaveCommunity(ctx context.Context, req *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error) {
+	return c.leaveCommunity.CallUnary(ctx, req)
+}
+
+// KickMember calls community.v1.CommunityService.KickMember.
+func (c *communityServiceClient) KickMember(ctx context.Context, req *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error) {
+	return c.kickMember.CallUnary(ctx, req)
 }
 
 // ListMembers calls community.v1.CommunityService.ListMembers.
@@ -303,12 +319,12 @@ func (c *communityServiceClient) GetMessages(ctx context.Context, req *connect.R
 
 // CommunityServiceHandler is an implementation of the community.v1.CommunityService service.
 type CommunityServiceHandler interface {
-	// --- Server ---
-	CreateServer(context.Context, *connect.Request[v1.CreateServerRequest]) (*connect.Response[v1.CreateServerResponse], error)
-	GetServer(context.Context, *connect.Request[v1.GetServerRequest]) (*connect.Response[v1.GetServerResponse], error)
-	UpdateServer(context.Context, *connect.Request[v1.UpdateServerRequest]) (*connect.Response[v1.UpdateServerResponse], error)
-	DeleteServer(context.Context, *connect.Request[v1.DeleteServerRequest]) (*connect.Response[v1.DeleteServerResponse], error)
-	ListServers(context.Context, *connect.Request[v1.ListServersRequest]) (*connect.Response[v1.ListServersResponse], error)
+	// --- Community ---
+	CreateCommunity(context.Context, *connect.Request[v1.CreateCommunityRequest]) (*connect.Response[v1.CreateCommunityResponse], error)
+	GetCommunity(context.Context, *connect.Request[v1.GetCommunityRequest]) (*connect.Response[v1.GetCommunityResponse], error)
+	UpdateCommunity(context.Context, *connect.Request[v1.UpdateCommunityRequest]) (*connect.Response[v1.UpdateCommunityResponse], error)
+	DeleteCommunity(context.Context, *connect.Request[v1.DeleteCommunityRequest]) (*connect.Response[v1.DeleteCommunityResponse], error)
+	ListCommunities(context.Context, *connect.Request[v1.ListCommunitiesRequest]) (*connect.Response[v1.ListCommunitiesResponse], error)
 	// --- Channel ---
 	CreateChannel(context.Context, *connect.Request[v1.CreateChannelRequest]) (*connect.Response[v1.CreateChannelResponse], error)
 	GetChannel(context.Context, *connect.Request[v1.GetChannelRequest]) (*connect.Response[v1.GetChannelResponse], error)
@@ -316,8 +332,9 @@ type CommunityServiceHandler interface {
 	DeleteChannel(context.Context, *connect.Request[v1.DeleteChannelRequest]) (*connect.Response[v1.DeleteChannelResponse], error)
 	ListChannels(context.Context, *connect.Request[v1.ListChannelsRequest]) (*connect.Response[v1.ListChannelsResponse], error)
 	// --- Membership ---
-	JoinServer(context.Context, *connect.Request[v1.JoinServerRequest]) (*connect.Response[v1.JoinServerResponse], error)
-	LeaveServer(context.Context, *connect.Request[v1.LeaveServerRequest]) (*connect.Response[v1.LeaveServerResponse], error)
+	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
+	LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error)
+	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error)
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
@@ -331,34 +348,34 @@ type CommunityServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	communityServiceMethods := v1.File_community_v1_community_proto.Services().ByName("CommunityService").Methods()
-	communityServiceCreateServerHandler := connect.NewUnaryHandler(
-		CommunityServiceCreateServerProcedure,
-		svc.CreateServer,
-		connect.WithSchema(communityServiceMethods.ByName("CreateServer")),
+	communityServiceCreateCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceCreateCommunityProcedure,
+		svc.CreateCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("CreateCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceGetServerHandler := connect.NewUnaryHandler(
-		CommunityServiceGetServerProcedure,
-		svc.GetServer,
-		connect.WithSchema(communityServiceMethods.ByName("GetServer")),
+	communityServiceGetCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceGetCommunityProcedure,
+		svc.GetCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("GetCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceUpdateServerHandler := connect.NewUnaryHandler(
-		CommunityServiceUpdateServerProcedure,
-		svc.UpdateServer,
-		connect.WithSchema(communityServiceMethods.ByName("UpdateServer")),
+	communityServiceUpdateCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceUpdateCommunityProcedure,
+		svc.UpdateCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("UpdateCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceDeleteServerHandler := connect.NewUnaryHandler(
-		CommunityServiceDeleteServerProcedure,
-		svc.DeleteServer,
-		connect.WithSchema(communityServiceMethods.ByName("DeleteServer")),
+	communityServiceDeleteCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceDeleteCommunityProcedure,
+		svc.DeleteCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("DeleteCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceListServersHandler := connect.NewUnaryHandler(
-		CommunityServiceListServersProcedure,
-		svc.ListServers,
-		connect.WithSchema(communityServiceMethods.ByName("ListServers")),
+	communityServiceListCommunitiesHandler := connect.NewUnaryHandler(
+		CommunityServiceListCommunitiesProcedure,
+		svc.ListCommunities,
+		connect.WithSchema(communityServiceMethods.ByName("ListCommunities")),
 		connect.WithHandlerOptions(opts...),
 	)
 	communityServiceCreateChannelHandler := connect.NewUnaryHandler(
@@ -391,16 +408,22 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 		connect.WithSchema(communityServiceMethods.ByName("ListChannels")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceJoinServerHandler := connect.NewUnaryHandler(
-		CommunityServiceJoinServerProcedure,
-		svc.JoinServer,
-		connect.WithSchema(communityServiceMethods.ByName("JoinServer")),
+	communityServiceJoinCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceJoinCommunityProcedure,
+		svc.JoinCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("JoinCommunity")),
 		connect.WithHandlerOptions(opts...),
 	)
-	communityServiceLeaveServerHandler := connect.NewUnaryHandler(
-		CommunityServiceLeaveServerProcedure,
-		svc.LeaveServer,
-		connect.WithSchema(communityServiceMethods.ByName("LeaveServer")),
+	communityServiceLeaveCommunityHandler := connect.NewUnaryHandler(
+		CommunityServiceLeaveCommunityProcedure,
+		svc.LeaveCommunity,
+		connect.WithSchema(communityServiceMethods.ByName("LeaveCommunity")),
+		connect.WithHandlerOptions(opts...),
+	)
+	communityServiceKickMemberHandler := connect.NewUnaryHandler(
+		CommunityServiceKickMemberProcedure,
+		svc.KickMember,
+		connect.WithSchema(communityServiceMethods.ByName("KickMember")),
 		connect.WithHandlerOptions(opts...),
 	)
 	communityServiceListMembersHandler := connect.NewUnaryHandler(
@@ -423,16 +446,16 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 	)
 	return "/community.v1.CommunityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case CommunityServiceCreateServerProcedure:
-			communityServiceCreateServerHandler.ServeHTTP(w, r)
-		case CommunityServiceGetServerProcedure:
-			communityServiceGetServerHandler.ServeHTTP(w, r)
-		case CommunityServiceUpdateServerProcedure:
-			communityServiceUpdateServerHandler.ServeHTTP(w, r)
-		case CommunityServiceDeleteServerProcedure:
-			communityServiceDeleteServerHandler.ServeHTTP(w, r)
-		case CommunityServiceListServersProcedure:
-			communityServiceListServersHandler.ServeHTTP(w, r)
+		case CommunityServiceCreateCommunityProcedure:
+			communityServiceCreateCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceGetCommunityProcedure:
+			communityServiceGetCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceUpdateCommunityProcedure:
+			communityServiceUpdateCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceDeleteCommunityProcedure:
+			communityServiceDeleteCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceListCommunitiesProcedure:
+			communityServiceListCommunitiesHandler.ServeHTTP(w, r)
 		case CommunityServiceCreateChannelProcedure:
 			communityServiceCreateChannelHandler.ServeHTTP(w, r)
 		case CommunityServiceGetChannelProcedure:
@@ -443,10 +466,12 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 			communityServiceDeleteChannelHandler.ServeHTTP(w, r)
 		case CommunityServiceListChannelsProcedure:
 			communityServiceListChannelsHandler.ServeHTTP(w, r)
-		case CommunityServiceJoinServerProcedure:
-			communityServiceJoinServerHandler.ServeHTTP(w, r)
-		case CommunityServiceLeaveServerProcedure:
-			communityServiceLeaveServerHandler.ServeHTTP(w, r)
+		case CommunityServiceJoinCommunityProcedure:
+			communityServiceJoinCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceLeaveCommunityProcedure:
+			communityServiceLeaveCommunityHandler.ServeHTTP(w, r)
+		case CommunityServiceKickMemberProcedure:
+			communityServiceKickMemberHandler.ServeHTTP(w, r)
 		case CommunityServiceListMembersProcedure:
 			communityServiceListMembersHandler.ServeHTTP(w, r)
 		case CommunityServiceSendMessageProcedure:
@@ -462,24 +487,24 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 // UnimplementedCommunityServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedCommunityServiceHandler struct{}
 
-func (UnimplementedCommunityServiceHandler) CreateServer(context.Context, *connect.Request[v1.CreateServerRequest]) (*connect.Response[v1.CreateServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.CreateServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) CreateCommunity(context.Context, *connect.Request[v1.CreateCommunityRequest]) (*connect.Response[v1.CreateCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.CreateCommunity is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) GetServer(context.Context, *connect.Request[v1.GetServerRequest]) (*connect.Response[v1.GetServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.GetServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) GetCommunity(context.Context, *connect.Request[v1.GetCommunityRequest]) (*connect.Response[v1.GetCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.GetCommunity is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) UpdateServer(context.Context, *connect.Request[v1.UpdateServerRequest]) (*connect.Response[v1.UpdateServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.UpdateServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) UpdateCommunity(context.Context, *connect.Request[v1.UpdateCommunityRequest]) (*connect.Response[v1.UpdateCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.UpdateCommunity is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) DeleteServer(context.Context, *connect.Request[v1.DeleteServerRequest]) (*connect.Response[v1.DeleteServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.DeleteServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) DeleteCommunity(context.Context, *connect.Request[v1.DeleteCommunityRequest]) (*connect.Response[v1.DeleteCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.DeleteCommunity is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) ListServers(context.Context, *connect.Request[v1.ListServersRequest]) (*connect.Response[v1.ListServersResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.ListServers is not implemented"))
+func (UnimplementedCommunityServiceHandler) ListCommunities(context.Context, *connect.Request[v1.ListCommunitiesRequest]) (*connect.Response[v1.ListCommunitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.ListCommunities is not implemented"))
 }
 
 func (UnimplementedCommunityServiceHandler) CreateChannel(context.Context, *connect.Request[v1.CreateChannelRequest]) (*connect.Response[v1.CreateChannelResponse], error) {
@@ -502,12 +527,16 @@ func (UnimplementedCommunityServiceHandler) ListChannels(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.ListChannels is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) JoinServer(context.Context, *connect.Request[v1.JoinServerRequest]) (*connect.Response[v1.JoinServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.JoinServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.JoinCommunity is not implemented"))
 }
 
-func (UnimplementedCommunityServiceHandler) LeaveServer(context.Context, *connect.Request[v1.LeaveServerRequest]) (*connect.Response[v1.LeaveServerResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.LeaveServer is not implemented"))
+func (UnimplementedCommunityServiceHandler) LeaveCommunity(context.Context, *connect.Request[v1.LeaveCommunityRequest]) (*connect.Response[v1.LeaveCommunityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.LeaveCommunity is not implemented"))
+}
+
+func (UnimplementedCommunityServiceHandler) KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.KickMember is not implemented"))
 }
 
 func (UnimplementedCommunityServiceHandler) ListMembers(context.Context, *connect.Request[v1.ListMembersRequest]) (*connect.Response[v1.ListMembersResponse], error) {

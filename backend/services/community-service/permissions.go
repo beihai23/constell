@@ -3,7 +3,7 @@ package main
 // Permission bitmasks following the Discord-like permission model.
 const (
 	PermissionAdministrator  int64 = 1 << 0 // 1
-	PermissionManageServer   int64 = 1 << 1 // 2
+	PermissionManageCommunity int64 = 1 << 1 // 2
 	PermissionManageChannels int64 = 1 << 2 // 4
 	PermissionManageRoles    int64 = 1 << 3 // 8
 	PermissionKickMembers    int64 = 1 << 4 // 16
@@ -15,7 +15,7 @@ const (
 )
 
 // allPermissions is the bitmask with every permission bit set.
-const allPermissions = PermissionAdministrator | PermissionManageServer | PermissionManageChannels |
+const allPermissions = PermissionAdministrator | PermissionManageCommunity | PermissionManageChannels |
 	PermissionManageRoles | PermissionKickMembers | PermissionBanMembers |
 	PermissionManageMessages | PermissionSendMessages | PermissionReadMessages |
 	PermissionAttachFiles

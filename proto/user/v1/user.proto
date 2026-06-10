@@ -74,6 +74,7 @@ message ListFriendsResponse {
 message SendDMRequest {
   string target_user_id = 1;
   string content = 2;
+  repeated string file_ids = 3;
 }
 
 message SendDMResponse {
@@ -86,6 +87,7 @@ message DMMessage {
   string sender_id = 3;
   string content = 4;
   int64 created_at = 5;
+  repeated common.v1.Attachment attachments = 6;
 }
 
 // --- GetDMHistory ---

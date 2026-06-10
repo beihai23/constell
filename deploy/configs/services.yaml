@@ -1,0 +1,35 @@
+# Constell 服务实例列表
+# StaticRegistry 从此文件加载实例地址。
+services:
+  api-gateway:
+    instances:
+      - addr: "api-gateway:8080"
+
+  ws-gateway:
+    instances:
+      - addr: "ws-gateway-1:8081"
+      - addr: "ws-gateway-2:8081"
+
+  auth-service:
+    instances:
+      - addr: "auth-service:9081"
+
+  user-service:
+    instances:
+      - addr: "user-service:9082"
+
+  community-service:
+    instances:
+      - addr: "community-service:9083"
+
+  file-service:
+    instances:
+      - addr: "file-service:9084"
+
+  search-service:
+    instances:
+      - addr: "search-service:9085"
+
+  notify-service:
+    instances:
+      - addr: "notify-service:9086"

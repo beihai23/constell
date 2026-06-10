@@ -6,14 +6,14 @@ option go_package = "github.com/constell/constell/backend/pkg/proto/communityv1"
 
 import "common/v1/common.proto";
 
-// CommunityService handles servers, channels, members, and group messages.
+// CommunityService handles communities, channels, members, and group messages.
 service CommunityService {
-  // --- Server ---
-  rpc CreateServer(CreateServerRequest) returns (CreateServerResponse);
-  rpc GetServer(GetServerRequest) returns (GetServerResponse);
-  rpc UpdateServer(UpdateServerRequest) returns (UpdateServerResponse);
-  rpc DeleteServer(DeleteServerRequest) returns (DeleteServerResponse);
-  rpc ListServers(ListServersRequest) returns (ListServersResponse);
+  // --- Community ---
+  rpc CreateCommunity(CreateCommunityRequest) returns (CreateCommunityResponse);
+  rpc GetCommunity(GetCommunityRequest) returns (GetCommunityResponse);
+  rpc UpdateCommunity(UpdateCommunityRequest) returns (UpdateCommunityResponse);
+  rpc DeleteCommunity(DeleteCommunityRequest) returns (DeleteCommunityResponse);
+  rpc ListCommunities(ListCommunitiesRequest) returns (ListCommunitiesResponse);
 
   // --- Channel ---
   rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
@@ -23,8 +23,9 @@ service CommunityService {
   rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
 
   // --- Membership ---
-  rpc JoinServer(JoinServerRequest) returns (JoinServerResponse);
-  rpc LeaveServer(LeaveServerRequest) returns (LeaveServerResponse);
+  rpc JoinCommunity(JoinCommunityRequest) returns (JoinCommunityResponse);
+  rpc LeaveCommunity(LeaveCommunityRequest) returns (LeaveCommunityResponse);
+  rpc KickMember(KickMemberRequest) returns (KickMemberResponse);
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
 
   // --- Channel Messages ---
@@ -33,10 +34,10 @@ service CommunityService {
 }
 
 // =============================================
-// Server
+// Community
 // =============================================
 
-message Server {
+message Community {
   string id = 1;
   string name = 2;
   string description = 3;
@@ -46,47 +47,47 @@ message Server {
   int64 updated_at = 7;
 }
 
-message CreateServerRequest {
+message CreateCommunityRequest {
   string name = 1;
   string description = 2;
   string icon_url = 3;
 }
 
-message CreateServerResponse {
-  Server server = 1;
+message CreateCommunityResponse {
+  Community community = 1;
 }
 
-message GetServerRequest {
-  string server_id = 1;
+message GetCommunityRequest {
+  string community_id = 1;
 }
 
-message GetServerResponse {
-  Server server = 1;
+message GetCommunityResponse {
+  Community community = 1;
 }
 
-message UpdateServerRequest {
-  string server_id = 1;
+message UpdateCommunityRequest {
+  string community_id = 1;
   string name = 2;
   string description = 3;
   string icon_url = 4;
 }
 
-message UpdateServerResponse {
-  Server server = 1;
+message UpdateCommunityResponse {
+  Community community = 1;
 }
 
-message DeleteServerRequest {
-  string server_id = 1;
+message DeleteCommunityRequest {
+  string community_id = 1;
 }
 
-message DeleteServerResponse {}
+message DeleteCommunityResponse {}
 
-message ListServersRequest {
+message ListCommunitiesRequest {
   common.v1.PaginationRequest pagination = 1;
 }
 
-message ListServersResponse {
-  repeated Server servers = 1;
+message ListCommunitiesResponse {
+  repeated Community communities = 1;
   common.v1.PaginationResponse pagination = 2;
 }
 
@@ -102,7 +103,7 @@ enum ChannelType {
 
 message Channel {
   string id = 1;
-  string server_id = 2;
+  string community_id = 2;
   string name = 3;
   string topic = 4;
   ChannelType type = 5;
@@ -112,7 +113,7 @@ message Channel {
 }
 
 message CreateChannelRequest {
-  string server_id = 1;
+  string community_id = 1;
   string name = 2;
   string topic = 3;
   ChannelType type = 4;
@@ -150,7 +151,7 @@ message DeleteChannelRequest {
 message DeleteChannelResponse {}
 
 message ListChannelsRequest {
-  string server_id = 1;
+  string community_id = 1;
   common.v1.PaginationRequest pagination = 2;
 }
 
@@ -163,35 +164,42 @@ message ListChannelsResponse {
 // Membership
 // =============================================
 
-message ServerMember {
-  string server_id = 1;
+message CommunityMember {
+  string community_id = 1;
   string user_id = 2;
   string nickname = 3;
   repeated string role_ids = 4;
   int64 joined_at = 5;
 }
 
-message JoinServerRequest {
-  string server_id = 1;
+message JoinCommunityRequest {
+  string community_id = 1;
 }
 
-message JoinServerResponse {
-  ServerMember member = 1;
+message JoinCommunityResponse {
+  CommunityMember member = 1;
 }
 
-message LeaveServerRequest {
-  string server_id = 1;
+message LeaveCommunityRequest {
+  string community_id = 1;
 }
 
-message LeaveServerResponse {}
+message LeaveCommunityResponse {}
+
+message KickMemberRequest {
+  string community_id = 1;
+  string user_id = 2;  // target user to kick
+}
+
+message KickMemberResponse {}
 
 message ListMembersRequest {
-  string server_id = 1;
+  string community_id = 1;
   common.v1.PaginationRequest pagination = 2;
 }
 
 message ListMembersResponse {
-  repeated ServerMember members = 1;
+  repeated CommunityMember members = 1;
   common.v1.PaginationResponse pagination = 2;
 }
 
@@ -206,11 +214,13 @@ message ChannelMessage {
   string content = 4;
   int64 created_at = 5;
   int64 updated_at = 6;
+  repeated common.v1.Attachment attachments = 7;
 }
 
 message SendMessageRequest {
   string channel_id = 1;
   string content = 2;
+  repeated string file_ids = 3;
 }
 
 message SendMessageResponse {
