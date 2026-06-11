@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { useUIStore } from '@/stores/uiStore';
+import { useCommunitiesStore } from '@/stores/communitiesStore';
+import { useAuthStore } from '@/stores/authStore';
 import {
   Command,
   CommandInput,
@@ -71,7 +73,7 @@ function SearchLoading() {
 // ---------------------------------------------------------------------------
 
 function RelevanceIndicator({ score }: { score: number }) {
-  // Normalize: 1.0 = best, display as a subtle bar
+  if (score == null || isNaN(score)) return null;
   const pct = Math.round(Math.min(score, 1) * 100);
   return (
     <span
@@ -91,6 +93,9 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const navigate = useNavigate();
   const client = useConstellClient();
   const setShowSearch = useUIStore((s) => s.setShowSearch);
+  const channels = useCommunitiesStore((s) => s.channels);
+  const communities = useCommunitiesStore((s) => s.communities);
+  const currentUser = useAuthStore((s) => s.user);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -98,6 +103,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const [searched, setSearched] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset state when dialog opens/closes
   useEffect(() => {
@@ -106,6 +112,11 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
       setResults(null);
       setLoading(false);
       setSearched(false);
+    } else {
+      // Focus input after dialog opens
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
     }
   }, [open]);
 
@@ -149,6 +160,35 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     };
   }, []);
 
+  // Resolve channel name from store
+  const getChannelName = useCallback(
+    (communityId: string, channelId: string): string => {
+      const chs = channels.get(communityId);
+      const ch = chs?.find((c) => c.id === channelId);
+      return ch ? `#${ch.name}` : channelId;
+    },
+    [channels],
+  );
+
+  // Resolve community name from store
+  const getCommunityName = useCallback(
+    (communityId: string): string => {
+      return communities.get(communityId)?.name ?? communityId;
+    },
+    [communities],
+  );
+
+  // Resolve peer nickname — for DMs, if the peer is the current user, show "you"
+  // Otherwise we don't have the peer's nickname cached, so show a shortened ID
+  const getPeerLabel = useCallback(
+    (peerId: string): string => {
+      if (currentUser && peerId === currentUser.id) return 'you';
+      // Shorten UUID to first 8 chars for readability
+      return peerId.slice(0, 8);
+    },
+    [currentUser],
+  );
+
   // Navigation handlers
   const goToUser = useCallback(
     (userId: string) => {
@@ -182,7 +222,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[20%] translate-y-0 gap-0 overflow-hidden rounded-xl border-[#313244] bg-[#1e1e2e] p-0 text-[#cdd6f4] shadow-2xl sm:max-w-lg">
+      <DialogContent className="top-[20%] translate-y-0 gap-0 overflow-hidden rounded-xl border-[#313244] bg-[#1e1e2e] p-0 text-[#cdd6f4] shadow-2xl sm:max-w-lg" showCloseButton={false}>
         <DialogHeader className="sr-only">
           <DialogTitle>Search</DialogTitle>
           <DialogDescription>
@@ -191,12 +231,12 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
         </DialogHeader>
         <Command className="bg-transparent" shouldFilter={false}>
           <div className="border-b border-[#313244] px-3 py-2">
-            <input
-              className="w-full bg-transparent text-sm text-[#cdd6f4] outline-none placeholder:text-[#585b70]"
+            <CommandInput
+              ref={inputRef as React.Ref<HTMLInputElement>}
               placeholder="Search users, messages..."
               value={query}
-              onChange={(e) => handleInputChange(e.target.value)}
-              autoFocus
+              onValueChange={handleInputChange}
+              className="bg-transparent text-[#cdd6f4] placeholder:text-[#585b70]"
             />
           </div>
 
@@ -234,6 +274,8 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                     <ChannelMessageItem
                       key={msg.id}
                       message={msg}
+                      channelLabel={getChannelName(msg.communityId, msg.channelId)}
+                      communityLabel={getCommunityName(msg.communityId)}
                       onSelect={() =>
                         goToChannelMessage(msg.communityId, msg.channelId)
                       }
@@ -252,6 +294,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                     <DMMessageItem
                       key={msg.id}
                       message={msg}
+                      peerLabel={getPeerLabel(msg.peerId)}
                       onSelect={() => goToDM(msg.peerId)}
                     />
                   ))}
@@ -298,9 +341,13 @@ function UserResultItem({
 
 function ChannelMessageItem({
   message,
+  channelLabel,
+  communityLabel,
   onSelect,
 }: {
   message: MessageSearchResult;
+  channelLabel: string;
+  communityLabel: string;
   onSelect: () => void;
 }) {
   return (
@@ -314,7 +361,7 @@ function ChannelMessageItem({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{message.content}</p>
         <p className="text-xs text-[#585b70]">
-          Channel: {message.channelId}
+          {channelLabel} in {communityLabel}
         </p>
       </div>
       <RelevanceIndicator score={message.relevance} />
@@ -324,9 +371,11 @@ function ChannelMessageItem({
 
 function DMMessageItem({
   message,
+  peerLabel,
   onSelect,
 }: {
   message: DMMessageSearchResult;
+  peerLabel: string;
   onSelect: () => void;
 }) {
   return (
@@ -339,7 +388,7 @@ function DMMessageItem({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{message.content}</p>
-        <p className="text-xs text-[#585b70]">DM with: {message.peerId}</p>
+        <p className="text-xs text-[#585b70]">DM with {peerLabel}</p>
       </div>
       <RelevanceIndicator score={message.relevance} />
     </CommandItem>

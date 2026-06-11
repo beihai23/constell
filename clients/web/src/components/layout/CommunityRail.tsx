@@ -1,7 +1,9 @@
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -90,24 +92,79 @@ export function CommunityRail() {
       {/* Spacer to push avatar to bottom */}
       <div className="flex-1" />
 
-      {/* Current user avatar */}
-      {user && (
-        <button
-          className="group relative flex items-center justify-center"
-          onClick={() => {
-            /* TODO: open user settings */
-          }}
-        >
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full transition-all duration-200 hover:rounded-2xl hover:bg-[#313244]">
-            <Avatar size="lg">
-              {user.avatarUrl ? (
-                <AvatarImage src={user.avatarUrl} alt={user.nickname} />
-              ) : (
-                <AvatarFallback>{user.nickname.charAt(0).toUpperCase()}</AvatarFallback>
-              )}
-            </Avatar>
+      {/* Current user avatar + menu */}
+      {user && <UserMenu />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UserMenu — avatar button that opens a floating menu with profile + logout
+// ---------------------------------------------------------------------------
+
+function UserMenu() {
+  const user = useAuthStore((s) => s.user);
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  if (!user) return null;
+
+  const handleLogout = () => {
+    setOpen(false);
+    logout();
+    navigate('/login', { replace: true });
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        className="group relative flex items-center justify-center"
+        onClick={() => setOpen(!open)}
+        aria-label="User menu"
+      >
+        <div className={cn(
+          'flex h-12 w-12 items-center justify-center overflow-hidden transition-all duration-200',
+          open ? 'rounded-2xl bg-[#313244]' : 'rounded-full hover:rounded-2xl hover:bg-[#313244]',
+        )}>
+          <Avatar size="lg">
+            {user.avatarUrl ? (
+              <AvatarImage src={user.avatarUrl} alt={user.nickname} />
+            ) : (
+              <AvatarFallback>{user.nickname.charAt(0).toUpperCase()}</AvatarFallback>
+            )}
+          </Avatar>
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-14 left-16 z-50 w-56 rounded-xl border border-[#313244] bg-[#1e1e2e] p-2 shadow-xl">
+          {/* User info */}
+          <div className="px-2 py-2">
+            <p className="text-sm font-semibold text-[#cdd6f4]">{user.nickname}</p>
+            <p className="text-xs text-[#585b70]">{user.email}</p>
           </div>
-        </button>
+          <Separator className="my-1 bg-[#313244]" />
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-[#f38ba8] hover:bg-[#313244]"
+          >
+            Logout
+          </button>
+        </div>
       )}
     </div>
   );
