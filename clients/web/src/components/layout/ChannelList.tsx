@@ -1,5 +1,6 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router';
+import { useConstellClient } from '@/hooks/useConstellClient';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
@@ -7,19 +8,27 @@ import { useUIStore } from '@/stores/uiStore';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import type { Channel } from '@constell/sdk-js';
+import type {
+  Channel,
+  SearchResults,
+  UserSearchResult,
+  MessageSearchResult,
+  DMMessageSearchResult,
+} from '@constell/sdk-js';
 
 /** Exposed so MainLayout can focus the input via ⌘K. */
 export const searchInputRef = { current: null as HTMLInputElement | null };
 
 /**
  * Middle column (240px). Displays channel list or DM list depending on
- * the current route. The search input filters the list inline.
+ * the current route. The search input filters locally as you type;
+ * pressing Enter calls the search API and shows results inline.
  */
 export function ChannelList() {
   const { communityId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const client = useConstellClient();
   const communities = useCommunitiesStore((s) => s.communities);
   const channels = useCommunitiesStore((s) => s.channels);
   const currentChannelId = useCommunitiesStore((s) => s.currentChannelId);
@@ -31,14 +40,42 @@ export function ChannelList() {
   const community = communityId ? communities.get(communityId) : undefined;
   const channelList = communityId ? (channels.get(communityId) ?? []) : [];
 
-  // Inline search filter
+  // Inline search filter (local) + API search results
   const [filter, setFilter] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Expose ref for ⌘K
   useEffect(() => {
     searchInputRef.current = inputRef.current;
   });
+
+  // Clear search results when filter is emptied
+  useEffect(() => {
+    if (!filter) setSearchResults(null);
+  }, [filter]);
+
+  // Enter → call search API
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && filter.trim()) {
+        e.preventDefault();
+        setSearchLoading(true);
+        client
+          .search(filter.trim(), { limit: 10 })
+          .then(setSearchResults)
+          .catch(() => setSearchResults(null))
+          .finally(() => setSearchLoading(false));
+      }
+      if (e.key === 'Escape') {
+        setFilter('');
+        setSearchResults(null);
+        inputRef.current?.blur();
+      }
+    },
+    [client, filter],
+  );
 
   const filteredChannels = useMemo(
     () =>
@@ -49,6 +86,9 @@ export function ChannelList() {
         : channelList,
     [channelList, filter],
   );
+
+  // If we have API search results, show them instead of the normal list
+  const showSearch = searchResults !== null;
 
   return (
     <div className="flex w-60 shrink-0 flex-col bg-[#181825]">
@@ -66,14 +106,26 @@ export function ChannelList() {
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Search..."
+          onKeyDown={handleKeyDown}
+          placeholder="Search... (Enter to search all)"
           className="h-7 w-full rounded bg-[#11111b] px-2 text-xs text-[#cdd6f4] placeholder:text-[#585b70] outline-none focus:ring-1 focus:ring-[#585b70]"
         />
       </div>
 
       {/* Scrollable content */}
       <ScrollArea className="flex-1">
-        {isDMView ? (
+        {showSearch ? (
+          <SearchResultsList
+            results={searchResults}
+            loading={searchLoading}
+            channels={channels}
+            communities={communities}
+            onSelect={() => {
+              setFilter('');
+              setSearchResults(null);
+            }}
+          />
+        ) : isDMView ? (
           <DMList filter={filter} />
         ) : communityId ? (
           <div className="px-2">
@@ -105,6 +157,148 @@ export function ChannelList() {
         )}
       </ScrollArea>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SearchResultsList — shown after Enter triggers API search
+// ---------------------------------------------------------------------------
+
+function SearchResultsList({
+  results,
+  loading,
+  channels,
+  communities,
+  onSelect,
+}: {
+  results: SearchResults;
+  loading: boolean;
+  channels: Map<string, Channel[]>;
+  communities: Map<string, { id: string; name: string }>;
+  onSelect: () => void;
+}) {
+  const navigate = useNavigate();
+
+  if (loading) {
+    return (
+      <div className="px-2 py-4 text-center text-xs text-[#585b70]">Searching...</div>
+    );
+  }
+
+  const hasAny =
+    results.users.length > 0 ||
+    results.messages.length > 0 ||
+    results.dmMessages.length > 0;
+
+  if (!hasAny) {
+    return (
+      <div className="px-2 py-4 text-center text-xs text-[#585b70]">No results found</div>
+    );
+  }
+
+  return (
+    <div className="px-2 space-y-2">
+      {/* Users */}
+      {results.users.length > 0 && (
+        <div>
+          <p className="mb-1 px-1 text-[10px] font-semibold tracking-wide text-[#585b70] uppercase">
+            Users
+          </p>
+          {results.users.map((user) => (
+            <UserResult
+              key={user.id}
+              user={user}
+              onClick={() => {
+                navigate(`/@me/${user.id}`);
+                onSelect();
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Channel messages */}
+      {results.messages.length > 0 && (
+        <div>
+          <p className="mb-1 px-1 text-[10px] font-semibold tracking-wide text-[#585b70] uppercase">
+            Messages
+          </p>
+          {results.messages.map((msg) => {
+            const chs = channels.get(msg.communityId);
+            const ch = chs?.find((c) => c.id === msg.channelId);
+            return (
+              <MessageResult
+                key={msg.id}
+                content={msg.content}
+                label={`#${ch?.name ?? msg.channelId.slice(0, 8)}`}
+                onClick={() => {
+                  navigate(`/${msg.communityId}/${msg.channelId}`);
+                  onSelect();
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* DM messages */}
+      {results.dmMessages.length > 0 && (
+        <div>
+          <p className="mb-1 px-1 text-[10px] font-semibold tracking-wide text-[#585b70] uppercase">
+            Direct Messages
+          </p>
+          {results.dmMessages.map((msg) => (
+            <MessageResult
+              key={msg.id}
+              content={msg.content}
+              label={`DM with ${msg.peerId.slice(0, 8)}`}
+              onClick={() => {
+                navigate(`/@me/${msg.peerId}`);
+                onSelect();
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserResult({ user, onClick }: { user: UserSearchResult; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm text-[#a6adc8] transition-colors hover:bg-[#1e1e2e] hover:text-[#cdd6f4]"
+    >
+      <Avatar size="sm">
+        {user.avatarUrl ? (
+          <AvatarImage src={user.avatarUrl} alt={user.nickname} />
+        ) : (
+          <AvatarFallback>{user.nickname.charAt(0).toUpperCase()}</AvatarFallback>
+        )}
+      </Avatar>
+      <span className="truncate">{user.nickname}</span>
+    </button>
+  );
+}
+
+function MessageResult({
+  content,
+  label,
+  onClick,
+}: {
+  content: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full flex-col rounded px-2 py-1 text-left transition-colors hover:bg-[#1e1e2e]"
+    >
+      <span className="truncate text-xs text-[#cdd6f4]">{content}</span>
+      <span className="text-[10px] text-[#585b70]">{label}</span>
+    </button>
   );
 }
 
