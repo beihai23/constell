@@ -4,9 +4,10 @@ import { useConstellClient } from './useConstellClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
+import { useUIStore } from '@/stores/uiStore';
 
 /**
- * Loads initial data (communities, channels, unread counts) once after login.
+ * Loads initial data (communities, channels, unread counts, presence) once after login.
  * Safe to call from MainLayout — uses a ref guard to avoid re-fetching.
  */
 export function useInitialData() {
@@ -15,6 +16,7 @@ export function useInitialData() {
   const setCommunities = useCommunitiesStore((s) => s.setCommunities);
   const setChannels = useCommunitiesStore((s) => s.setChannels);
   const setUnreads = useUnreadStore((s) => s.setUnreads);
+  const setOnline = useUIStore((s) => s.setOnline);
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -22,19 +24,28 @@ export function useInitialData() {
     loaded.current = true;
 
     (async () => {
+      // Collect all member user IDs across communities for presence lookup
+      const memberIds = new Set<string>();
+
       try {
         // Load communities
         const result = await client.listCommunities();
         setCommunities(result.items);
 
-        // Load channels for each community in parallel
+        // Load channels + members for each community in parallel
         await Promise.all(
           result.items.map(async (c) => {
             try {
-              const channels = await client.getChannels(c.id);
+              const [channels, membersResult] = await Promise.all([
+                client.getChannels(c.id),
+                client.getMembers(c.id, { limit: 100 }),
+              ]);
               setChannels(c.id, channels);
+              for (const m of membersResult.items) {
+                memberIds.add(m.userId);
+              }
             } catch {
-              // Individual channel loading failure is non-fatal
+              // Individual loading failure is non-fatal
             }
           }),
         );
@@ -50,6 +61,18 @@ export function useInitialData() {
         // Unread counts are non-critical
       }
 
+      // Pull online presence for all known members
+      if (memberIds.size > 0) {
+        try {
+          const presence = await client.getPresence(Array.from(memberIds));
+          for (const id of presence.online) {
+            setOnline(id);
+          }
+        } catch {
+          // Presence is non-critical — UI will update via push events
+        }
+      }
+
       // DM conversations — endpoint may return 501 (not implemented)
       try {
         await client.getDMConversations();
@@ -57,5 +80,5 @@ export function useInitialData() {
         // Gracefully skip — DMList derives from received messages
       }
     })();
-  }, [isAuthenticated, client, setCommunities, setChannels, setUnreads]);
+  }, [isAuthenticated, client, setCommunities, setChannels, setUnreads, setOnline]);
 }

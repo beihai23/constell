@@ -506,6 +506,16 @@ export class ConstellClient {
   }
 
   // -------------------------------------------------------------------------
+  // Presence (REST)
+  // -------------------------------------------------------------------------
+
+  /** Get online/offline status for a list of user IDs. */
+  async getPresence(userIds: string[]): Promise<{ online: string[]; offline: string[] }> {
+    const ids = userIds.join(",");
+    return this.rest.get(`/api/v1/users/presence?ids=${encodeURIComponent(ids)}`);
+  }
+
+  // -------------------------------------------------------------------------
   // File methods (REST)
   // -------------------------------------------------------------------------
 

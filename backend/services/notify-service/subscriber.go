@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/nats-io/nats.go"
 )
 
@@ -63,14 +65,16 @@ type Subscriber struct {
 	nc    *nats.Conn
 	js    nats.JetStreamContext
 	store *Store
+	pool  *pgxpool.Pool
 }
 
 // NewSubscriber creates a new Subscriber.
-func NewSubscriber(nc *nats.Conn, js nats.JetStreamContext, store *Store) *Subscriber {
+func NewSubscriber(nc *nats.Conn, js nats.JetStreamContext, store *Store, pool *pgxpool.Pool) *Subscriber {
 	return &Subscriber{
 		nc:    nc,
 		js:    js,
 		store: store,
+		pool:  pool,
 	}
 }
 
@@ -84,6 +88,8 @@ func (s *Subscriber) SubscribeAll() error {
 		{"constell.message.created", s.handleMessageCreated},
 		{"constell.member.joined", s.handleMemberJoined},
 		{"constell.member.left", s.handleMemberLeft},
+		{"constell.user.online", s.handleUserOnline},
+		{"constell.user.offline", s.handleUserOffline},
 	}
 
 	for _, sub := range subscriptions {
@@ -219,6 +225,123 @@ func (s *Subscriber) handleMemberLeft(msg *nats.Msg) {
 	}
 
 	msg.Ack()
+}
+
+// ---------- Presence event handlers ----------
+
+func (s *Subscriber) handleUserOnline(msg *nats.Msg) {
+	ctx := context.Background()
+
+	var evt struct {
+		UserID string `json:"user_id"`
+		GwID   string `json:"gw_id"`
+	}
+	if err := json.Unmarshal(msg.Data, &evt); err != nil {
+		slog.Error("unmarshal user online event", "error", err)
+		msg.Ack()
+		return
+	}
+
+	s.pushPresenceToFriends(ctx, evt.UserID, "USER_ONLINE")
+	msg.Ack()
+}
+
+func (s *Subscriber) handleUserOffline(msg *nats.Msg) {
+	ctx := context.Background()
+
+	var evt struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(msg.Data, &evt); err != nil {
+		slog.Error("unmarshal user offline event", "error", err)
+		msg.Ack()
+		return
+	}
+
+	s.pushPresenceToFriends(ctx, evt.UserID, "USER_OFFLINE")
+	msg.Ack()
+}
+
+// pushPresenceToFriends looks up the user's friends and pushes the presence
+// event to each friend's connected ws-gateway.
+func (s *Subscriber) pushPresenceToFriends(ctx context.Context, userID string, eventType string) {
+	// Query friends from DB: both directions (user->target and target->user)
+	rows, err := s.pool.Query(ctx,
+		`SELECT CASE WHEN user_id = $1 THEN target_user_id ELSE user_id END AS friend_id
+		 FROM user_relations
+		 WHERE (user_id = $1 OR target_user_id = $1) AND type = 'friend'`, userID)
+	if err != nil {
+		slog.Error("query friends for presence", "error", err, "user_id", userID)
+		return
+	}
+	defer rows.Close()
+
+	var friendIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		friendIDs = append(friendIDs, id)
+	}
+
+	if len(friendIDs) == 0 {
+		return
+	}
+
+	push := NotificationPush{
+		Targets:   friendIDs,
+		EventType: eventType,
+		Payload: map[string]interface{}{
+			"user_id": userID,
+		},
+	}
+
+	// Group by gateway for efficient push
+	s.pushToUsers(ctx, friendIDs, push)
+}
+
+// pushToUsers sends a push payload to multiple users, grouping by their
+// connected ws-gateway for efficient batch delivery.
+func (s *Subscriber) pushToUsers(ctx context.Context, userIDs []string, payload NotificationPush) {
+	// Batch lookup gateways via Redis pipeline
+	pipe := s.store.rdb.Pipeline()
+	cmds := make([]*goredis.StringCmd, len(userIDs))
+	for i, uid := range userIDs {
+		cmds[i] = pipe.Get(ctx, "ws:uid:"+uid)
+	}
+	_, _ = pipe.Exec(ctx)
+
+	// Group targets by gateway
+	gatewayTargets := make(map[string][]string) // gwID -> user IDs
+	for i, uid := range userIDs {
+		gwID, err := cmds[i].Result()
+		if err != nil {
+			continue // user offline
+		}
+		gatewayTargets[gwID] = append(gatewayTargets[gwID], uid)
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("marshal presence push", "error", err)
+		return
+	}
+
+	for gwID, targets := range gatewayTargets {
+		// Overwrite targets with only the users on this gateway
+		localPayload := payload
+		localPayload.Targets = targets
+		localData, err := json.Marshal(localPayload)
+		if err != nil {
+			continue
+		}
+		topic := "gw.push." + gwID
+		if err := s.nc.Publish(topic, localData); err != nil {
+			slog.Error("publish presence push", "error", err, "topic", topic)
+		}
+	}
+	_ = data
 }
 
 // ---------- Push ----------

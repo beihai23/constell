@@ -108,7 +108,7 @@ func main() {
 	// 8. Wire up store, subscriber, and service
 	store := NewStore(rdb)
 
-	subscriber := NewSubscriber(natsResult.Conn, natsResult.JS, store)
+	subscriber := NewSubscriber(natsResult.Conn, natsResult.JS, store, pool)
 	if err := subscriber.SubscribeAll(); err != nil {
 		slog.Error("subscribe to NATS subjects", "error", err)
 		os.Exit(1)

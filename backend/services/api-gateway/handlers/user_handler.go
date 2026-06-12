@@ -4,23 +4,77 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
+	goredis "github.com/redis/go-redis/v9"
 
 	commonv1 "github.com/constell/constell/backend/pkg/proto/common/v1"
 	userv1 "github.com/constell/constell/backend/pkg/proto/user/v1"
 	userv1connect "github.com/constell/constell/backend/pkg/proto/user/v1/userv1connect"
 )
 
+const presenceKeyPrefix = "ws:uid:"
+
 // UserHandler handles REST API requests for user operations.
 type UserHandler struct {
 	client userv1connect.UserServiceClient
+	redis  *goredis.Client // optional: nil means presence lookups return empty
 }
 
 // NewUserHandler creates a new UserHandler.
-func NewUserHandler(client userv1connect.UserServiceClient) *UserHandler {
-	return &UserHandler{client: client}
+func NewUserHandler(client userv1connect.UserServiceClient, redis *goredis.Client) *UserHandler {
+	return &UserHandler{client: client, redis: redis}
+}
+
+// GetPresence handles GET /api/v1/users/presence?ids=id1,id2,...
+// Checks Redis ws:uid:{id} keys to determine which users are online.
+func (h *UserHandler) GetPresence(w http.ResponseWriter, r *http.Request) {
+	idsParam := r.URL.Query().Get("ids")
+	if idsParam == "" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"online":  []string{},
+			"offline": []string{},
+		})
+		return
+	}
+
+	ids := strings.Split(idsParam, ",")
+	if len(ids) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"online":  []string{},
+			"offline": []string{},
+		})
+		return
+	}
+
+	online := make([]string, 0)
+	offline := make([]string, 0)
+
+	if h.redis != nil {
+		for _, id := range ids {
+			key := presenceKeyPrefix + id
+			exists, err := h.redis.Exists(r.Context(), key).Result()
+			if err != nil {
+				offline = append(offline, id)
+				continue
+			}
+			if exists == 1 {
+				online = append(online, id)
+			} else {
+				offline = append(offline, id)
+			}
+		}
+	} else {
+		// No Redis — assume all offline
+		offline = append(offline, ids...)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"online":  online,
+		"offline": offline,
+	})
 }
 
 // getUserResponse is the JSON response for GET /api/v1/users/:id.

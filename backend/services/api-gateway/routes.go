@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/constell/constell/backend/pkg/jwt"
 	"github.com/constell/constell/backend/services/api-gateway/handlers"
@@ -63,10 +64,10 @@ func notImplemented() http.HandlerFunc {
 }
 
 // registerRoutes sets up all REST routes on the chi router.
-func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
+func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, redisClient *goredis.Client) {
 	// Create handler instances.
 	authHandler := handlers.NewAuthHandler(clients.Auth)
-	userHandler := handlers.NewUserHandler(clients.User)
+	userHandler := handlers.NewUserHandler(clients.User, redisClient)
 	communityHandler := handlers.NewCommunityHandler(clients.Community)
 	fileHandler := handlers.NewFileHandler(clients.File)
 	searchHandler := handlers.NewSearchHandler(clients.Search)
@@ -85,6 +86,7 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string) {
 
 		// User routes.
 		r.Route("/users", func(r chi.Router) {
+			r.Get("/presence", userHandler.GetPresence)
 			r.Get("/{id}", userHandler.GetUser)
 			r.Patch("/{id}", userHandler.UpdateProfile)
 			r.Get("/{id}/friends", userHandler.ListFriends)

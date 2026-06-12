@@ -11,12 +11,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/constell/constell/backend/pkg/config"
 	"github.com/constell/constell/backend/pkg/health"
 	"github.com/constell/constell/backend/pkg/logging"
 	"github.com/constell/constell/backend/pkg/metrics"
 	pkgotel "github.com/constell/constell/backend/pkg/otel"
+	"github.com/constell/constell/backend/pkg/redis"
 	"github.com/constell/constell/backend/pkg/registry"
 	"github.com/constell/constell/backend/services/api-gateway/handlers"
 )
@@ -36,6 +38,9 @@ type Config struct {
 
 	RegistryType    string `env:"REGISTRY_TYPE" default:"static"`
 	ServicesCfgPath string `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
+
+	RedisAddr     string `env:"REDIS_URL" default:"localhost:6379"`
+	RedisPassword string `env:"REDIS_PASSWORD" default:""`
 
 	OTelEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:"http://localhost:5080/api/default/v1/otlp"`
 	OTelInsecure string `env:"OTEL_EXPORTER_OTLP_INSECURE" default:"true"`
@@ -117,6 +122,19 @@ func main() {
 	// 6. Init clients
 	clients := handlers.NewClientsFromURLs(authURL, userURL, communityURL, fileURL, searchURL, notifyURL)
 
+	// 6b. Init Redis (optional — used for presence lookups)
+	var redisClient *goredis.Client
+	rdb, err := redis.New(context.Background(), redis.Config{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+	})
+	if err != nil {
+		slog.Warn("redis unavailable, presence lookups disabled", "error", err)
+	} else {
+		redisClient = rdb
+		slog.Info("redis connected", "addr", cfg.RedisAddr)
+	}
+
 	// 7. Health checks
 	hc := health.NewChecker()
 
@@ -135,7 +153,7 @@ func main() {
 	r.Get("/readyz", hc.ReadyHandler())
 
 	// Register all REST routes
-	registerRoutes(r, clients, cfg.JWTSecret)
+	registerRoutes(r, clients, cfg.JWTSecret, redisClient)
 
 	// Wrap mux with metrics middleware
 	var handler http.Handler = r

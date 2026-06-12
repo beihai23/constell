@@ -194,6 +194,7 @@ services:
       SEARCH_SERVICE_URL: "http://search-service:9085"
       NOTIFY_SERVICE_URL: "http://notify-service:9086"
       JWT_SECRET: "dev-secret-change-me"
+      REDIS_URL: "redis:6379"
       REGISTRY_TYPE: "static"
       SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
