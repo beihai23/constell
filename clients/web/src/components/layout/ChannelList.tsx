@@ -1,6 +1,7 @@
 import { useNavigate, useParams, useLocation } from 'react-router';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
+import { useUIStore } from '@/stores/uiStore';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DMList } from '@/components/dm/DMList';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,7 @@ export function ChannelList() {
   const channels = useCommunitiesStore((s) => s.channels);
   const currentChannelId = useCommunitiesStore((s) => s.currentChannelId);
   const channelUnreads = useUnreadStore((s) => s.channelUnreads);
+  const setShowSearch = useUIStore((s) => s.setShowSearch);
 
   const isDMView = location.pathname.startsWith('/@me');
 
@@ -34,11 +36,15 @@ export function ChannelList() {
         </h2>
       </div>
 
-      {/* Search placeholder */}
+      {/* Search trigger — opens the global SearchDialog */}
       <div className="px-2 py-2">
-        <div className="h-7 rounded bg-[#11111b] px-2 flex items-center">
+        <button
+          onClick={() => setShowSearch(true)}
+          className="flex h-7 w-full items-center rounded bg-[#11111b] px-2 text-left transition-colors hover:bg-[#181825]"
+        >
           <span className="text-xs text-[#585b70]">Search...</span>
-        </div>
+          <kbd className="ml-auto rounded bg-[#313244] px-1 py-0.5 text-[10px] text-[#585b70]">⌘K</kbd>
+        </button>
       </div>
 
       {/* Scrollable content */}
