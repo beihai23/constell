@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useMessagesStore } from '@/stores/messagesStore';
@@ -8,6 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import type { Channel } from '@constell/sdk-js';
+
+/** Exposed so MainLayout can focus the input via ⌘K. */
+export const searchInputRef = { current: null as HTMLInputElement | null };
 
 /**
  * Middle column (240px). Displays channel list or DM list depending on
@@ -30,6 +33,12 @@ export function ChannelList() {
 
   // Inline search filter
   const [filter, setFilter] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Expose ref for ⌘K
+  useEffect(() => {
+    searchInputRef.current = inputRef.current;
+  });
 
   const filteredChannels = useMemo(
     () =>
@@ -53,6 +62,7 @@ export function ChannelList() {
       {/* Inline search input */}
       <div className="px-2 py-2">
         <input
+          ref={inputRef}
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}

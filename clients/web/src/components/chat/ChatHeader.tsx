@@ -18,7 +18,6 @@ export function ChatHeader() {
   const client = useConstellClient();
   const channels = useCommunitiesStore((s) => s.channels);
   const toggleMemberList = useUIStore((s) => s.toggleMemberList);
-  const toggleSearch = useUIStore((s) => s.toggleSearch);
   const showMemberList = useUIStore((s) => s.showMemberList);
   const onlineUsers = useUIStore((s) => s.onlineUsers);
 
@@ -92,11 +91,11 @@ export function ChatHeader() {
 
       {/* Right section — action buttons */}
       <div className="flex shrink-0 items-center gap-1">
-        {/** Search button — only in channel mode */}
+        {/** Search button — only in channel mode, focuses the sidebar search */}
         {!isDM && (
           <button
             className="flex h-8 w-8 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#313244] hover:text-[#cdd6f4]"
-            onClick={toggleSearch}
+            onClick={() => { const el = document.querySelector<HTMLInputElement>('[placeholder="Search..."]'); el?.focus(); }}
             aria-label="Search"
             title="Search (Cmd+K)"
           >

@@ -1,12 +1,10 @@
 import { useEffect, useCallback } from 'react';
 import { Outlet } from 'react-router';
 import { CommunityRail } from './CommunityRail';
-import { ChannelList } from './ChannelList';
+import { ChannelList, searchInputRef } from './ChannelList';
 import { ConnectionStatusBar } from './ConnectionStatusBar';
-import { SearchDialog } from '@/components/search/SearchDialog';
 import { useClientEvents } from '@/hooks/useClientEvents';
 import { useInitialData } from '@/hooks/useInitialData';
-import { useUIStore } from '@/stores/uiStore';
 
 export function MainLayout() {
   // Bridge SDK events to Zustand stores (called once at top level)
@@ -14,19 +12,13 @@ export function MainLayout() {
   // Load initial data (communities, channels, unreads) after login
   useInitialData();
 
-  const showSearch = useUIStore((s) => s.showSearch);
-  const setShowSearch = useUIStore((s) => s.setShowSearch);
-
-  // Global Cmd+K / Ctrl+K keyboard shortcut
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowSearch(!showSearch);
-      }
-    },
-    [showSearch, setShowSearch],
-  );
+  // ⌘K / Ctrl+K → focus the search input in ChannelList
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      searchInputRef.current?.focus();
+    }
+  }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -46,9 +38,6 @@ export function MainLayout() {
           <Outlet />
         </div>
       </div>
-
-      {/* Search dialog (Cmd+K) */}
-      <SearchDialog open={showSearch} onOpenChange={setShowSearch} />
     </div>
   );
 }
