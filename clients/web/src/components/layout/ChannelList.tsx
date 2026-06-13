@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router';
 import { useConstellClient } from '@/hooks/useConstellClient';
+import { useResolvedUser } from '@/hooks/useResolvedUser';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
@@ -248,10 +249,9 @@ function SearchResultsList({
             Direct Messages
           </p>
           {results.dmMessages.map((msg) => (
-            <MessageResult
+            <DMMessageResult
               key={msg.id}
-              content={msg.content}
-              label={`DM with ${msg.peerId.slice(0, 8)}`}
+              message={msg}
               onClick={() => {
                 navigate(`/@me/${msg.peerId}`);
                 onSelect();
@@ -299,6 +299,23 @@ function MessageResult({
       <span className="truncate text-xs text-[#cdd6f4]">{content}</span>
       <span className="text-[10px] text-[#585b70]">{label}</span>
     </button>
+  );
+}
+
+function DMMessageResult({
+  message,
+  onClick,
+}: {
+  message: DMMessageSearchResult;
+  onClick: () => void;
+}) {
+  const peer = useResolvedUser(message.peerId);
+  return (
+    <MessageResult
+      content={message.content}
+      label={`DM with ${peer?.nickname ?? message.peerId.slice(0, 8)}`}
+      onClick={onClick}
+    />
   );
 }
 
@@ -369,44 +386,66 @@ function DMList({ filter }: { filter: string }) {
   return (
     <div className="px-2 space-y-0.5">
       {conversations.map((conv) => (
-        <button
+        <DMListItem
           key={conv.peerId}
+          conv={conv}
+          selected={selectedPeerId === conv.peerId}
           onClick={() => navigate(`/@me/${conv.peerId}`)}
-          className={cn(
-            'flex w-full items-center gap-2 rounded px-2 py-1.5 transition-colors',
-            selectedPeerId === conv.peerId
-              ? 'bg-[#313244] text-[#cdd6f4]'
-              : 'text-[#a6adc8] hover:bg-[#1e1e2e] hover:text-[#cdd6f4]',
-            conv.unread > 0 && selectedPeerId !== conv.peerId && 'text-[#cdd6f4] font-semibold',
-          )}
-        >
-          <div className="relative shrink-0">
-            <Avatar size="sm">
-              <AvatarFallback>
-                {conv.peerId.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span
-              className={cn(
-                'absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full ring-2 ring-[#181825]',
-                conv.online ? 'bg-[#a6e3a1]' : 'bg-[#585b70]',
-              )}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm">{conv.peerId}</p>
-            {conv.lastContent && (
-              <p className="truncate text-xs text-[#585b70]">{conv.lastContent}</p>
-            )}
-          </div>
-          {conv.unread > 0 && selectedPeerId !== conv.peerId && (
-            <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
-              {conv.unread > 99 ? '99+' : conv.unread}
-            </span>
-          )}
-        </button>
+        />
       ))}
     </div>
+  );
+}
+
+function DMListItem({
+  conv,
+  selected,
+  onClick,
+}: {
+  conv: { peerId: string; lastContent: string; unread: number; online: boolean };
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const peer = useResolvedUser(conv.peerId);
+  const label = peer?.nickname ?? conv.peerId.slice(0, 8);
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex w-full items-center gap-2 rounded px-2 py-1.5 transition-colors',
+        selected
+          ? 'bg-[#313244] text-[#cdd6f4]'
+          : 'text-[#a6adc8] hover:bg-[#1e1e2e] hover:text-[#cdd6f4]',
+        conv.unread > 0 && !selected && 'text-[#cdd6f4] font-semibold',
+      )}
+    >
+      <div className="relative shrink-0">
+        <Avatar size="sm">
+          {peer?.avatarUrl ? (
+            <AvatarImage src={peer.avatarUrl} alt={label} />
+          ) : (
+            <AvatarFallback>{label.charAt(0).toUpperCase()}</AvatarFallback>
+          )}
+        </Avatar>
+        <span
+          className={cn(
+            'absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full ring-2 ring-[#181825]',
+            conv.online ? 'bg-[#a6e3a1]' : 'bg-[#585b70]',
+          )}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">{label}</p>
+        {conv.lastContent && (
+          <p className="truncate text-xs text-[#585b70]">{conv.lastContent}</p>
+        )}
+      </div>
+      {conv.unread > 0 && !selected && (
+        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
+          {conv.unread > 99 ? '99+' : conv.unread}
+        </span>
+      )}
+    </button>
   );
 }
 
