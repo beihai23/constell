@@ -252,13 +252,15 @@ func (r *Repository) ListChannelsByCommunity(ctx context.Context, communityID st
 	return channels, nil
 }
 
-// AddMember adds a user to a community.
+// AddMember adds a user to a community. The user's current nickname is copied
+// from the users table so member listings show a readable name.
 func (r *Repository) AddMember(ctx context.Context, communityID, userID string) (*MemberRow, error) {
 	var m MemberRow
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO community_members (community_id, user_id)
-			 VALUES ($1, $2) ON CONFLICT (community_id, user_id) DO NOTHING
-			 RETURNING community_id, user_id, nickname, joined_at`,
+		`INSERT INTO community_members (community_id, user_id, nickname)
+		 SELECT $1, $2, COALESCE((SELECT nickname FROM users WHERE id = $2), '')
+		 ON CONFLICT (community_id, user_id) DO NOTHING
+		 RETURNING community_id, user_id, nickname, joined_at`,
 		communityID, userID,
 	).Scan(&m.CommunityID, &m.UserID, &m.Nickname, &m.JoinedAt)
 	if err != nil {
@@ -270,12 +272,15 @@ func (r *Repository) AddMember(ctx context.Context, communityID, userID string) 
 	return &m, nil
 }
 
-// GetMember fetches a member record.
+// GetMember fetches a member record. The nickname is resolved from the users
+// table so it stays current even if the user renames themselves.
 func (r *Repository) GetMember(ctx context.Context, communityID, userID string) (*MemberRow, error) {
 	var m MemberRow
 	err := r.pool.QueryRow(ctx,
-		`SELECT community_id, user_id, nickname, joined_at
-			 FROM community_members WHERE community_id = $1 AND user_id = $2`,
+		`SELECT cm.community_id, cm.user_id, COALESCE(u.nickname, ''), cm.joined_at
+			 FROM community_members cm
+			 LEFT JOIN users u ON u.id = cm.user_id
+			 WHERE cm.community_id = $1 AND cm.user_id = $2`,
 		communityID, userID,
 	).Scan(&m.CommunityID, &m.UserID, &m.Nickname, &m.JoinedAt)
 	if err != nil {
@@ -298,19 +303,23 @@ func (r *Repository) RemoveMember(ctx context.Context, communityID, userID strin
 	return nil
 }
 
-// ListMembersByCommunity lists members with pagination.
+// ListMembersByCommunity lists members with pagination. The nickname is
+// resolved from the users table so it stays current.
 func (r *Repository) ListMembersByCommunity(ctx context.Context, communityID string, limit int, cursor string) ([]*MemberRow, string, error) {
 	var args []interface{}
 	args = append(args, communityID)
-	query := `SELECT community_id, user_id, nickname, joined_at FROM community_members WHERE community_id = $1`
+	query := `SELECT cm.community_id, cm.user_id, COALESCE(u.nickname, ''), cm.joined_at
+		FROM community_members cm
+		LEFT JOIN users u ON u.id = cm.user_id
+		WHERE cm.community_id = $1`
 
 	argIdx := 2
 	if cursor != "" {
-		query += fmt.Sprintf(` AND user_id > $%d`, argIdx)
+		query += fmt.Sprintf(` AND cm.user_id > $%d`, argIdx)
 		args = append(args, cursor)
 		argIdx++
 	}
-	query += fmt.Sprintf(` ORDER BY user_id LIMIT $%d`, argIdx)
+	query += fmt.Sprintf(` ORDER BY cm.user_id LIMIT $%d`, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.pool.Query(ctx, query, args...)
