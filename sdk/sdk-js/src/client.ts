@@ -295,9 +295,11 @@ export class ConstellClient {
    * Returns the authenticated user.
    */
   async login(email: string, password: string): Promise<User> {
-    const user = await this.auth.login(email, password);
+    const minimal = await this.auth.login(email, password);
     this.connect();
-    return user;
+    // The auth response only carries user_id + tokens; fetch the full profile
+    // (nickname, email, avatar) so consumers don't see an empty user.
+    return this.enrichUser(minimal);
   }
 
   /**
@@ -305,9 +307,23 @@ export class ConstellClient {
    * Returns the newly created user.
    */
   async register(username: string, email: string, password: string): Promise<User> {
-    const user = await this.auth.register(username, email, password);
+    const minimal = await this.auth.register(username, email, password);
     this.connect();
-    return user;
+    return this.enrichUser(minimal);
+  }
+
+  /**
+   * Fetch the full profile for a minimal (token-derived) user. Falls back to
+   * the given user if the lookup fails, so a flaky profile fetch never blocks
+   * an otherwise-successful login.
+   */
+  private async enrichUser(user: User): Promise<User> {
+    if (!user?.id) return user;
+    try {
+      return await this.getUser(user.id);
+    } catch {
+      return user;
+    }
   }
 
   /** Disconnect and clear stored tokens. */
@@ -318,10 +334,19 @@ export class ConstellClient {
 
   /**
    * Attempt to restore the authenticated user from stored tokens.
-   * Returns the User if tokens are valid, or null.
+   * Returns the User if tokens are valid, or null. The returned user is
+   * derived from the JWT and may lack a nickname; call `refreshProfile` to
+   * fetch the full profile asynchronously.
    */
   initFromStorage(): User | null {
     return this.auth.initFromStorage();
+  }
+
+  /** Fetch the full profile for the current user and return it. */
+  async refreshProfile(): Promise<User | null> {
+    const minimal = this.auth.initFromStorage();
+    if (!minimal?.id) return null;
+    return this.enrichUser(minimal);
   }
 
   // -------------------------------------------------------------------------

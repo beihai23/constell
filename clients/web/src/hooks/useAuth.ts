@@ -39,6 +39,10 @@ export function useAuth() {
     if (u) {
       setUser(u);
       client.connect();
+      // The token-derived user lacks nickname/email — fetch the full profile.
+      client.refreshProfile().then((full) => {
+        if (full) setUser(full);
+      });
     } else {
       setUser(null);
     }
