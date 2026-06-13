@@ -198,10 +198,14 @@ type connectUserSvcClient struct {
 }
 
 func (c *connectUserSvcClient) SendDM(ctx context.Context, senderID, receiverID, content string) (string, string, error) {
-	resp, err := c.client.SendDM(ctx, connect.NewRequest(&userv1.SendDMRequest{
+	req := connect.NewRequest(&userv1.SendDMRequest{
 		TargetUserId: receiverID,
 		Content:      content,
-	}))
+	})
+	if token := TokenFromContext(ctx); token != "" {
+		req.Header().Set("Authorization", "Bearer "+token)
+	}
+	resp, err := c.client.SendDM(ctx, req)
 	if err != nil {
 		return "", "", fmt.Errorf("SendDM RPC: %w", err)
 	}
@@ -219,10 +223,14 @@ type connectCommunitySvcClient struct {
 }
 
 func (c *connectCommunitySvcClient) SendMessage(ctx context.Context, senderID, channelID, content string) (string, string, error) {
-	resp, err := c.client.SendMessage(ctx, connect.NewRequest(&communityv1.SendMessageRequest{
+	req := connect.NewRequest(&communityv1.SendMessageRequest{
 		ChannelId: channelID,
 		Content:   content,
-	}))
+	})
+	if token := TokenFromContext(ctx); token != "" {
+		req.Header().Set("Authorization", "Bearer "+token)
+	}
+	resp, err := c.client.SendMessage(ctx, req)
 	if err != nil {
 		return "", "", fmt.Errorf("SendMessage RPC: %w", err)
 	}

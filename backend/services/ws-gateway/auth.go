@@ -18,17 +18,19 @@ func NewAuthenticator(secret string) *Authenticator {
 }
 
 // AuthenticateUpgrade extracts and validates the JWT token from the
-// WebSocket upgrade request's query parameter "token".
-func (a *Authenticator) AuthenticateUpgrade(r *http.Request) (string, error) {
-	token := r.URL.Query().Get("token")
+// WebSocket upgrade request's query parameter "token". It returns the
+// user ID and the raw token; the token is forwarded on outgoing RPCs so
+// downstream services (user/community) re-validate the same identity.
+func (a *Authenticator) AuthenticateUpgrade(r *http.Request) (userID string, token string, err error) {
+	token = r.URL.Query().Get("token")
 	if token == "" {
-		return "", fmt.Errorf("missing token query parameter")
+		return "", "", fmt.Errorf("missing token query parameter")
 	}
 
-	userID, err := pkgjwt.ParseToken(a.secret, token)
+	userID, err = pkgjwt.ParseToken(a.secret, token)
 	if err != nil {
-		return "", fmt.Errorf("invalid token: %w", err)
+		return "", "", fmt.Errorf("invalid token: %w", err)
 	}
 
-	return userID, nil
+	return userID, token, nil
 }

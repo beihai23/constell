@@ -70,7 +70,7 @@ func (s *Server) SetPushSubscriber(ps *PushSubscriber) {
 
 // HandleUpgrade handles the WebSocket upgrade request.
 func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
-	userID, err := s.auth.AuthenticateUpgrade(r)
+	userID, token, err := s.auth.AuthenticateUpgrade(r)
 	if err != nil {
 		log.Printf("auth failed for %s: %v", r.RemoteAddr, err)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -96,10 +96,10 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	s.broadcastUserOnline(userID)
 
-	go s.readPump(userID, conn)
+	go s.readPump(userID, token, conn)
 }
 
-func (s *Server) readPump(userID string, conn *websocket.Conn) {
+func (s *Server) readPump(userID string, token string, conn *websocket.Conn) {
 	defer s.cleanupDisconnect(userID)
 
 	s.heartbeat.ResetDeadline(conn)
@@ -134,6 +134,7 @@ func (s *Server) readPump(userID string, conn *websocket.Conn) {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx = WithToken(ctx, token)
 		ack, routeErr := s.router.Route(ctx, userID, msg)
 		cancel()
 
