@@ -242,7 +242,7 @@ func (s *Subscriber) handleUserOnline(msg *nats.Msg) {
 		return
 	}
 
-	s.pushPresenceToFriends(ctx, evt.UserID, "USER_ONLINE")
+	s.pushPresenceToContacts(ctx, evt.UserID, "USER_ONLINE")
 	msg.Ack()
 }
 
@@ -258,39 +258,63 @@ func (s *Subscriber) handleUserOffline(msg *nats.Msg) {
 		return
 	}
 
-	s.pushPresenceToFriends(ctx, evt.UserID, "USER_OFFLINE")
+	s.pushPresenceToContacts(ctx, evt.UserID, "USER_OFFLINE")
 	msg.Ack()
 }
 
-// pushPresenceToFriends looks up the user's friends and pushes the presence
-// event to each friend's connected ws-gateway.
-func (s *Subscriber) pushPresenceToFriends(ctx context.Context, userID string, eventType string) {
-	// Query friends from DB: both directions (user->target and target->user)
-	rows, err := s.pool.Query(ctx,
+// pushPresenceToContacts pushes a presence event to everyone who should see
+// the user's online/offline status: friends and members of communities the
+// user belongs to. Targets are deduplicated. The member list relies on this
+// to show online status for community members who aren't friends.
+func (s *Subscriber) pushPresenceToContacts(ctx context.Context, userID string, eventType string) {
+	contacts := make(map[string]struct{})
+
+	// 1. Friends (both directions).
+	friendRows, err := s.pool.Query(ctx,
 		`SELECT CASE WHEN user_id = $1 THEN target_user_id ELSE user_id END AS friend_id
 		 FROM user_relations
 		 WHERE (user_id = $1 OR target_user_id = $1) AND type = 'friend'`, userID)
 	if err != nil {
 		slog.Error("query friends for presence", "error", err, "user_id", userID)
-		return
-	}
-	defer rows.Close()
-
-	var friendIDs []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			continue
+	} else {
+		for friendRows.Next() {
+			var id string
+			if err := friendRows.Scan(&id); err == nil {
+				contacts[id] = struct{}{}
+			}
 		}
-		friendIDs = append(friendIDs, id)
+		friendRows.Close()
 	}
 
-	if len(friendIDs) == 0 {
+	// 2. Co-members of any community the user belongs to.
+	memberRows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT m2.user_id
+		 FROM community_members m1
+		 JOIN community_members m2 ON m1.community_id = m2.community_id
+		 WHERE m1.user_id = $1 AND m2.user_id <> $1`, userID)
+	if err != nil {
+		slog.Error("query community co-members for presence", "error", err, "user_id", userID)
+	} else {
+		for memberRows.Next() {
+			var id string
+			if err := memberRows.Scan(&id); err == nil {
+				contacts[id] = struct{}{}
+			}
+		}
+		memberRows.Close()
+	}
+
+	if len(contacts) == 0 {
 		return
+	}
+
+	targetIDs := make([]string, 0, len(contacts))
+	for id := range contacts {
+		targetIDs = append(targetIDs, id)
 	}
 
 	push := NotificationPush{
-		Targets:   friendIDs,
+		Targets:   targetIDs,
 		EventType: eventType,
 		Payload: map[string]interface{}{
 			"user_id": userID,
@@ -298,7 +322,7 @@ func (s *Subscriber) pushPresenceToFriends(ctx context.Context, userID string, e
 	}
 
 	// Group by gateway for efficient push
-	s.pushToUsers(ctx, friendIDs, push)
+	s.pushToUsers(ctx, targetIDs, push)
 }
 
 // pushToUsers sends a push payload to multiple users, grouping by their
