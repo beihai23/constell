@@ -291,6 +291,53 @@ func (s *UserService) GetDMHistory(
 	return resp, nil
 }
 
+// GetDMConversations lists the caller's DM conversations. The peer_id is the
+// other party in each conversation.
+func (s *UserService) GetDMConversations(
+	ctx context.Context,
+	req *connect.Request[pbv1.GetDMConversationsRequest],
+) (*connect.Response[pbv1.GetDMConversationsResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+
+	limit := int32(50)
+	var cursor string
+	if req.Msg.Pagination != nil {
+		if req.Msg.Pagination.Limit > 0 {
+			limit = req.Msg.Pagination.Limit
+		}
+		cursor = req.Msg.Pagination.Cursor
+	}
+
+	convos, nextCursor, err := s.repo.GetDMConversations(ctx, callerID, int(limit), cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to get DM conversations: %w", err))
+	}
+
+	pbConvos := make([]*pbv1.DMConversation, 0, len(convos))
+	for _, c := range convos {
+		peerID := c.UserBID
+		if c.UserAID != callerID {
+			peerID = c.UserAID
+		}
+		pbConvos = append(pbConvos, &pbv1.DMConversation{
+			Id: c.ID, PeerId: peerID, CreatedAt: c.CreatedAt.Unix(),
+		})
+	}
+
+	resp := connect.NewResponse(&pbv1.GetDMConversationsResponse{
+		Conversations: pbConvos,
+		Pagination: &commonv1.PaginationResponse{
+			HasMore: nextCursor != "", NextCursor: nextCursor,
+		},
+	})
+	return resp, nil
+}
+
 // publishDMCreated publishes a constell.dm.created NATS event.
 func (s *UserService) publishDMCreated(ctx context.Context, senderID, receiverID, conversationID, content string, createdAt int64) {
 	if s.natsConn == nil {

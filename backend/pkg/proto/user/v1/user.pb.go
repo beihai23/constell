@@ -742,6 +742,162 @@ func (x *GetDMHistoryResponse) GetPagination() *v1.PaginationResponse {
 	return nil
 }
 
+type GetDMConversationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Pagination    *v1.PaginationRequest  `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDMConversationsRequest) Reset() {
+	*x = GetDMConversationsRequest{}
+	mi := &file_user_v1_user_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDMConversationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDMConversationsRequest) ProtoMessage() {}
+
+func (x *GetDMConversationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDMConversationsRequest.ProtoReflect.Descriptor instead.
+func (*GetDMConversationsRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetDMConversationsRequest) GetPagination() *v1.PaginationRequest {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type DMConversation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	PeerId        string                 `protobuf:"bytes,2,opt,name=peer_id,json=peerId,proto3" json:"peer_id,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DMConversation) Reset() {
+	*x = DMConversation{}
+	mi := &file_user_v1_user_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DMConversation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DMConversation) ProtoMessage() {}
+
+func (x *DMConversation) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DMConversation.ProtoReflect.Descriptor instead.
+func (*DMConversation) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DMConversation) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DMConversation) GetPeerId() string {
+	if x != nil {
+		return x.PeerId
+	}
+	return ""
+}
+
+func (x *DMConversation) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type GetDMConversationsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Conversations []*DMConversation      `protobuf:"bytes,1,rep,name=conversations,proto3" json:"conversations,omitempty"`
+	Pagination    *v1.PaginationResponse `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDMConversationsResponse) Reset() {
+	*x = GetDMConversationsResponse{}
+	mi := &file_user_v1_user_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDMConversationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDMConversationsResponse) ProtoMessage() {}
+
+func (x *GetDMConversationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDMConversationsResponse.ProtoReflect.Descriptor instead.
+func (*GetDMConversationsResponse) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetDMConversationsResponse) GetConversations() []*DMConversation {
+	if x != nil {
+		return x.Conversations
+	}
+	return nil
+}
+
+func (x *GetDMConversationsResponse) GetPagination() *v1.PaginationResponse {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
 var File_user_v1_user_proto protoreflect.FileDescriptor
 
 const file_user_v1_user_proto_rawDesc = "" +
@@ -810,13 +966,28 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\bmessages\x18\x01 \x03(\v2\x12.user.v1.DMMessageR\bmessages\x12=\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
-	"pagination2\xed\x02\n" +
+	"pagination\"Y\n" +
+	"\x19GetDMConversationsRequest\x12<\n" +
+	"\n" +
+	"pagination\x18\x01 \x01(\v2\x1c.common.v1.PaginationRequestR\n" +
+	"pagination\"X\n" +
+	"\x0eDMConversation\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\apeer_id\x18\x02 \x01(\tR\x06peerId\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\x03R\tcreatedAt\"\x9a\x01\n" +
+	"\x1aGetDMConversationsResponse\x12=\n" +
+	"\rconversations\x18\x01 \x03(\v2\x17.user.v1.DMConversationR\rconversations\x12=\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
+	"pagination2\xcc\x03\n" +
 	"\vUserService\x12<\n" +
 	"\aGetUser\x12\x17.user.v1.GetUserRequest\x1a\x18.user.v1.GetUserResponse\x12N\n" +
 	"\rUpdateProfile\x12\x1d.user.v1.UpdateProfileRequest\x1a\x1e.user.v1.UpdateProfileResponse\x12H\n" +
 	"\vListFriends\x12\x1b.user.v1.ListFriendsRequest\x1a\x1c.user.v1.ListFriendsResponse\x129\n" +
 	"\x06SendDM\x12\x16.user.v1.SendDMRequest\x1a\x17.user.v1.SendDMResponse\x12K\n" +
-	"\fGetDMHistory\x12\x1c.user.v1.GetDMHistoryRequest\x1a\x1d.user.v1.GetDMHistoryResponseB\x94\x01\n" +
+	"\fGetDMHistory\x12\x1c.user.v1.GetDMHistoryRequest\x1a\x1d.user.v1.GetDMHistoryResponse\x12]\n" +
+	"\x12GetDMConversations\x12\".user.v1.GetDMConversationsRequest\x1a#.user.v1.GetDMConversationsResponseB\x94\x01\n" +
 	"\vcom.user.v1B\tUserProtoP\x01Z=github.com/constell/constell/backend/pkg/proto/user/v1;userv1\xa2\x02\x03UXX\xaa\x02\aUser.V1\xca\x02\aUser\\V1\xe2\x02\x13User\\V1\\GPBMetadata\xea\x02\bUser::V1b\x06proto3"
 
 var (
@@ -831,50 +1002,58 @@ func file_user_v1_user_proto_rawDescGZIP() []byte {
 	return file_user_v1_user_proto_rawDescData
 }
 
-var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_user_v1_user_proto_goTypes = []any{
-	(*GetUserRequest)(nil),        // 0: user.v1.GetUserRequest
-	(*GetUserResponse)(nil),       // 1: user.v1.GetUserResponse
-	(*UpdateProfileRequest)(nil),  // 2: user.v1.UpdateProfileRequest
-	(*UpdateProfileResponse)(nil), // 3: user.v1.UpdateProfileResponse
-	(*GetUserProfile)(nil),        // 4: user.v1.GetUserProfile
-	(*ListFriendsRequest)(nil),    // 5: user.v1.ListFriendsRequest
-	(*ListFriendsResponse)(nil),   // 6: user.v1.ListFriendsResponse
-	(*SendDMRequest)(nil),         // 7: user.v1.SendDMRequest
-	(*SendDMResponse)(nil),        // 8: user.v1.SendDMResponse
-	(*DMMessage)(nil),             // 9: user.v1.DMMessage
-	(*GetDMHistoryRequest)(nil),   // 10: user.v1.GetDMHistoryRequest
-	(*GetDMHistoryResponse)(nil),  // 11: user.v1.GetDMHistoryResponse
-	(*v1.PaginationRequest)(nil),  // 12: common.v1.PaginationRequest
-	(*v1.UserBrief)(nil),          // 13: common.v1.UserBrief
-	(*v1.PaginationResponse)(nil), // 14: common.v1.PaginationResponse
-	(*v1.Attachment)(nil),         // 15: common.v1.Attachment
+	(*GetUserRequest)(nil),             // 0: user.v1.GetUserRequest
+	(*GetUserResponse)(nil),            // 1: user.v1.GetUserResponse
+	(*UpdateProfileRequest)(nil),       // 2: user.v1.UpdateProfileRequest
+	(*UpdateProfileResponse)(nil),      // 3: user.v1.UpdateProfileResponse
+	(*GetUserProfile)(nil),             // 4: user.v1.GetUserProfile
+	(*ListFriendsRequest)(nil),         // 5: user.v1.ListFriendsRequest
+	(*ListFriendsResponse)(nil),        // 6: user.v1.ListFriendsResponse
+	(*SendDMRequest)(nil),              // 7: user.v1.SendDMRequest
+	(*SendDMResponse)(nil),             // 8: user.v1.SendDMResponse
+	(*DMMessage)(nil),                  // 9: user.v1.DMMessage
+	(*GetDMHistoryRequest)(nil),        // 10: user.v1.GetDMHistoryRequest
+	(*GetDMHistoryResponse)(nil),       // 11: user.v1.GetDMHistoryResponse
+	(*GetDMConversationsRequest)(nil),  // 12: user.v1.GetDMConversationsRequest
+	(*DMConversation)(nil),             // 13: user.v1.DMConversation
+	(*GetDMConversationsResponse)(nil), // 14: user.v1.GetDMConversationsResponse
+	(*v1.PaginationRequest)(nil),       // 15: common.v1.PaginationRequest
+	(*v1.UserBrief)(nil),               // 16: common.v1.UserBrief
+	(*v1.PaginationResponse)(nil),      // 17: common.v1.PaginationResponse
+	(*v1.Attachment)(nil),              // 18: common.v1.Attachment
 }
 var file_user_v1_user_proto_depIdxs = []int32{
 	4,  // 0: user.v1.UpdateProfileResponse.user:type_name -> user.v1.GetUserProfile
-	12, // 1: user.v1.ListFriendsRequest.pagination:type_name -> common.v1.PaginationRequest
-	13, // 2: user.v1.ListFriendsResponse.friends:type_name -> common.v1.UserBrief
-	14, // 3: user.v1.ListFriendsResponse.pagination:type_name -> common.v1.PaginationResponse
+	15, // 1: user.v1.ListFriendsRequest.pagination:type_name -> common.v1.PaginationRequest
+	16, // 2: user.v1.ListFriendsResponse.friends:type_name -> common.v1.UserBrief
+	17, // 3: user.v1.ListFriendsResponse.pagination:type_name -> common.v1.PaginationResponse
 	9,  // 4: user.v1.SendDMResponse.message:type_name -> user.v1.DMMessage
-	15, // 5: user.v1.DMMessage.attachments:type_name -> common.v1.Attachment
-	12, // 6: user.v1.GetDMHistoryRequest.pagination:type_name -> common.v1.PaginationRequest
+	18, // 5: user.v1.DMMessage.attachments:type_name -> common.v1.Attachment
+	15, // 6: user.v1.GetDMHistoryRequest.pagination:type_name -> common.v1.PaginationRequest
 	9,  // 7: user.v1.GetDMHistoryResponse.messages:type_name -> user.v1.DMMessage
-	14, // 8: user.v1.GetDMHistoryResponse.pagination:type_name -> common.v1.PaginationResponse
-	0,  // 9: user.v1.UserService.GetUser:input_type -> user.v1.GetUserRequest
-	2,  // 10: user.v1.UserService.UpdateProfile:input_type -> user.v1.UpdateProfileRequest
-	5,  // 11: user.v1.UserService.ListFriends:input_type -> user.v1.ListFriendsRequest
-	7,  // 12: user.v1.UserService.SendDM:input_type -> user.v1.SendDMRequest
-	10, // 13: user.v1.UserService.GetDMHistory:input_type -> user.v1.GetDMHistoryRequest
-	1,  // 14: user.v1.UserService.GetUser:output_type -> user.v1.GetUserResponse
-	3,  // 15: user.v1.UserService.UpdateProfile:output_type -> user.v1.UpdateProfileResponse
-	6,  // 16: user.v1.UserService.ListFriends:output_type -> user.v1.ListFriendsResponse
-	8,  // 17: user.v1.UserService.SendDM:output_type -> user.v1.SendDMResponse
-	11, // 18: user.v1.UserService.GetDMHistory:output_type -> user.v1.GetDMHistoryResponse
-	14, // [14:19] is the sub-list for method output_type
-	9,  // [9:14] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	17, // 8: user.v1.GetDMHistoryResponse.pagination:type_name -> common.v1.PaginationResponse
+	15, // 9: user.v1.GetDMConversationsRequest.pagination:type_name -> common.v1.PaginationRequest
+	13, // 10: user.v1.GetDMConversationsResponse.conversations:type_name -> user.v1.DMConversation
+	17, // 11: user.v1.GetDMConversationsResponse.pagination:type_name -> common.v1.PaginationResponse
+	0,  // 12: user.v1.UserService.GetUser:input_type -> user.v1.GetUserRequest
+	2,  // 13: user.v1.UserService.UpdateProfile:input_type -> user.v1.UpdateProfileRequest
+	5,  // 14: user.v1.UserService.ListFriends:input_type -> user.v1.ListFriendsRequest
+	7,  // 15: user.v1.UserService.SendDM:input_type -> user.v1.SendDMRequest
+	10, // 16: user.v1.UserService.GetDMHistory:input_type -> user.v1.GetDMHistoryRequest
+	12, // 17: user.v1.UserService.GetDMConversations:input_type -> user.v1.GetDMConversationsRequest
+	1,  // 18: user.v1.UserService.GetUser:output_type -> user.v1.GetUserResponse
+	3,  // 19: user.v1.UserService.UpdateProfile:output_type -> user.v1.UpdateProfileResponse
+	6,  // 20: user.v1.UserService.ListFriends:output_type -> user.v1.ListFriendsResponse
+	8,  // 21: user.v1.UserService.SendDM:output_type -> user.v1.SendDMResponse
+	11, // 22: user.v1.UserService.GetDMHistory:output_type -> user.v1.GetDMHistoryResponse
+	14, // 23: user.v1.UserService.GetDMConversations:output_type -> user.v1.GetDMConversationsResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_user_proto_init() }
@@ -888,7 +1067,7 @@ func file_user_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_v1_user_proto_rawDesc), len(file_user_v1_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -45,6 +45,9 @@ const (
 	// UserServiceGetDMHistoryProcedure is the fully-qualified name of the UserService's GetDMHistory
 	// RPC.
 	UserServiceGetDMHistoryProcedure = "/user.v1.UserService/GetDMHistory"
+	// UserServiceGetDMConversationsProcedure is the fully-qualified name of the UserService's
+	// GetDMConversations RPC.
+	UserServiceGetDMConversationsProcedure = "/user.v1.UserService/GetDMConversations"
 )
 
 // UserServiceClient is a client for the user.v1.UserService service.
@@ -59,6 +62,8 @@ type UserServiceClient interface {
 	SendDM(context.Context, *connect.Request[v1.SendDMRequest]) (*connect.Response[v1.SendDMResponse], error)
 	// GetDMHistory retrieves DM history with a specific user.
 	GetDMHistory(context.Context, *connect.Request[v1.GetDMHistoryRequest]) (*connect.Response[v1.GetDMHistoryResponse], error)
+	// GetDMConversations lists the user's DM conversations.
+	GetDMConversations(context.Context, *connect.Request[v1.GetDMConversationsRequest]) (*connect.Response[v1.GetDMConversationsResponse], error)
 }
 
 // NewUserServiceClient constructs a client for the user.v1.UserService service. By default, it uses
@@ -102,16 +107,23 @@ func NewUserServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(userServiceMethods.ByName("GetDMHistory")),
 			connect.WithClientOptions(opts...),
 		),
+		getDMConversations: connect.NewClient[v1.GetDMConversationsRequest, v1.GetDMConversationsResponse](
+			httpClient,
+			baseURL+UserServiceGetDMConversationsProcedure,
+			connect.WithSchema(userServiceMethods.ByName("GetDMConversations")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // userServiceClient implements UserServiceClient.
 type userServiceClient struct {
-	getUser       *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
-	updateProfile *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	listFriends   *connect.Client[v1.ListFriendsRequest, v1.ListFriendsResponse]
-	sendDM        *connect.Client[v1.SendDMRequest, v1.SendDMResponse]
-	getDMHistory  *connect.Client[v1.GetDMHistoryRequest, v1.GetDMHistoryResponse]
+	getUser            *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
+	updateProfile      *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	listFriends        *connect.Client[v1.ListFriendsRequest, v1.ListFriendsResponse]
+	sendDM             *connect.Client[v1.SendDMRequest, v1.SendDMResponse]
+	getDMHistory       *connect.Client[v1.GetDMHistoryRequest, v1.GetDMHistoryResponse]
+	getDMConversations *connect.Client[v1.GetDMConversationsRequest, v1.GetDMConversationsResponse]
 }
 
 // GetUser calls user.v1.UserService.GetUser.
@@ -139,6 +151,11 @@ func (c *userServiceClient) GetDMHistory(ctx context.Context, req *connect.Reque
 	return c.getDMHistory.CallUnary(ctx, req)
 }
 
+// GetDMConversations calls user.v1.UserService.GetDMConversations.
+func (c *userServiceClient) GetDMConversations(ctx context.Context, req *connect.Request[v1.GetDMConversationsRequest]) (*connect.Response[v1.GetDMConversationsResponse], error) {
+	return c.getDMConversations.CallUnary(ctx, req)
+}
+
 // UserServiceHandler is an implementation of the user.v1.UserService service.
 type UserServiceHandler interface {
 	// GetUser returns a user's profile.
@@ -151,6 +168,8 @@ type UserServiceHandler interface {
 	SendDM(context.Context, *connect.Request[v1.SendDMRequest]) (*connect.Response[v1.SendDMResponse], error)
 	// GetDMHistory retrieves DM history with a specific user.
 	GetDMHistory(context.Context, *connect.Request[v1.GetDMHistoryRequest]) (*connect.Response[v1.GetDMHistoryResponse], error)
+	// GetDMConversations lists the user's DM conversations.
+	GetDMConversations(context.Context, *connect.Request[v1.GetDMConversationsRequest]) (*connect.Response[v1.GetDMConversationsResponse], error)
 }
 
 // NewUserServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -190,6 +209,12 @@ func NewUserServiceHandler(svc UserServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(userServiceMethods.ByName("GetDMHistory")),
 		connect.WithHandlerOptions(opts...),
 	)
+	userServiceGetDMConversationsHandler := connect.NewUnaryHandler(
+		UserServiceGetDMConversationsProcedure,
+		svc.GetDMConversations,
+		connect.WithSchema(userServiceMethods.ByName("GetDMConversations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/user.v1.UserService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UserServiceGetUserProcedure:
@@ -202,6 +227,8 @@ func NewUserServiceHandler(svc UserServiceHandler, opts ...connect.HandlerOption
 			userServiceSendDMHandler.ServeHTTP(w, r)
 		case UserServiceGetDMHistoryProcedure:
 			userServiceGetDMHistoryHandler.ServeHTTP(w, r)
+		case UserServiceGetDMConversationsProcedure:
+			userServiceGetDMConversationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -229,4 +256,8 @@ func (UnimplementedUserServiceHandler) SendDM(context.Context, *connect.Request[
 
 func (UnimplementedUserServiceHandler) GetDMHistory(context.Context, *connect.Request[v1.GetDMHistoryRequest]) (*connect.Response[v1.GetDMHistoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("user.v1.UserService.GetDMHistory is not implemented"))
+}
+
+func (UnimplementedUserServiceHandler) GetDMConversations(context.Context, *connect.Request[v1.GetDMConversationsRequest]) (*connect.Response[v1.GetDMConversationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("user.v1.UserService.GetDMConversations is not implemented"))
 }

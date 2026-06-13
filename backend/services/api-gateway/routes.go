@@ -99,7 +99,7 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, r
 		r.Route("/dm", func(r chi.Router) {
 			r.Post("/send", userHandler.SendDM)
 			r.Get("/history/{peerId}", userHandler.GetDMHistory)
-			r.Get("/conversations", notImplemented()) // GetDMConversations RPC added in Task 16
+			r.Get("/conversations", userHandler.GetDMConversations)
 		})
 
 		// Community routes.

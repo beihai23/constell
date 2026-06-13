@@ -18,6 +18,8 @@ service UserService {
   rpc SendDM(SendDMRequest) returns (SendDMResponse);
   // GetDMHistory retrieves DM history with a specific user.
   rpc GetDMHistory(GetDMHistoryRequest) returns (GetDMHistoryResponse);
+  // GetDMConversations lists the user's DM conversations.
+  rpc GetDMConversations(GetDMConversationsRequest) returns (GetDMConversationsResponse);
 }
 
 // --- GetUser ---
@@ -99,5 +101,22 @@ message GetDMHistoryRequest {
 
 message GetDMHistoryResponse {
   repeated DMMessage messages = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// --- GetDMConversations ---
+
+message GetDMConversationsRequest {
+  common.v1.PaginationRequest pagination = 1;
+}
+
+message DMConversation {
+  string id = 1;
+  string peer_id = 2;
+  int64 created_at = 3;
+}
+
+message GetDMConversationsResponse {
+  repeated DMConversation conversations = 1;
   common.v1.PaginationResponse pagination = 2;
 }

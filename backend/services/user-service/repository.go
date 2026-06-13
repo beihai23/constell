@@ -255,8 +255,10 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 	return messages, nextCursor, nil
 }
 
-// GetDMConversations returns conversations for a user.
-func (r *Repository) GetDMConversations(ctx context.Context, userID string, limit int, cursor string) ([]*DMConversationRow, error) {
+// GetDMConversations returns conversations for a user, newest first.
+// `cursor` is an RFC3339Nano timestamp; conversations older than it are returned.
+// The peer is whichever of user_a_id / user_b_id is not the caller.
+func (r *Repository) GetDMConversations(ctx context.Context, userID string, limit int, cursor string) ([]*DMConversationRow, string, error) {
 	var args []interface{}
 	args = append(args, userID)
 	query := `
@@ -270,11 +272,11 @@ func (r *Repository) GetDMConversations(ctx context.Context, userID string, limi
 		argIdx++
 	}
 	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
-	args = append(args, limit)
+	args = append(args, limit+1)
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("get dm conversations: %w", err)
+		return nil, "", fmt.Errorf("get dm conversations: %w", err)
 	}
 	defer rows.Close()
 
@@ -282,11 +284,17 @@ func (r *Repository) GetDMConversations(ctx context.Context, userID string, limi
 	for rows.Next() {
 		var c DMConversationRow
 		if err := rows.Scan(&c.ID, &c.UserAID, &c.UserBID, &c.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan conversation: %w", err)
+			return nil, "", fmt.Errorf("scan conversation: %w", err)
 		}
 		convos = append(convos, &c)
 	}
-	return convos, nil
+
+	var nextCursor string
+	if len(convos) > limit {
+		nextCursor = convos[limit].CreatedAt.Format(time.RFC3339Nano)
+		convos = convos[:limit]
+	}
+	return convos, nextCursor, nil
 }
 
 // MarshalUser serializes a UserRow to JSON bytes.

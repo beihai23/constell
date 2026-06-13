@@ -48,9 +48,8 @@ export interface DMMessage {
 /** A DM conversation summary (for listing). */
 export interface DMConversation {
   id: string;
-  peer: UserBrief;
-  lastMessage?: DMMessage;
-  unreadCount: number;
+  peerId: string;
+  createdAt: number;
 }
 
 // ---- Community (community/v1) ---------------------------------------------

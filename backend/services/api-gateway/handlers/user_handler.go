@@ -323,6 +323,53 @@ func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// dmConversationResponse is the JSON representation of a DM conversation.
+type dmConversationResponse struct {
+	ID        string `json:"id"`
+	PeerID    string `json:"peer_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// GetDMConversations handles GET /api/v1/dm/conversations.
+func (h *UserHandler) GetDMConversations(w http.ResponseWriter, r *http.Request) {
+	limit := int32FromQuery(r, "limit", 50)
+	offset := int32FromQuery(r, "offset", 0)
+
+	cr := connect.NewRequest(&userv1.GetDMConversationsRequest{
+		Pagination: &commonv1.PaginationRequest{
+			Limit:  limit,
+			Offset: offset,
+		},
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.GetDMConversations(r.Context(), cr)
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	msg := resp.Msg
+	conversations := make([]dmConversationResponse, 0, len(msg.Conversations))
+	for _, c := range msg.Conversations {
+		conversations = append(conversations, dmConversationResponse{
+			ID:        c.GetId(),
+			PeerID:    c.GetPeerId(),
+			CreatedAt: c.GetCreatedAt(),
+		})
+	}
+
+	hasMore := false
+	if msg.Pagination != nil {
+		hasMore = msg.Pagination.HasMore
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"conversations": conversations,
+		"has_more":      hasMore,
+	})
+}
+
 // int32FromQuery parses an int32 query parameter with a default fallback.
 func int32FromQuery(r *http.Request, key string, defaultVal int32) int32 {
 	s := r.URL.Query().Get(key)

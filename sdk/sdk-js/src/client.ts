@@ -164,19 +164,10 @@ function mapMember(m: Record<string, unknown>): Member {
 
 /** Map a snake_case REST DM conversation to camelCase SDK DMConversation. */
 function mapDMConversation(c: Record<string, unknown>): DMConversation {
-  const peer = c.peer as Record<string, unknown> | undefined;
-  const lastMsg = c.last_message ?? c.lastMessage;
   return {
     id: c.id as string,
-    peer: peer
-      ? {
-          id: peer.id as string,
-          nickname: peer.nickname as string,
-          avatarUrl: (peer.avatar_url ?? peer.avatarUrl ?? "") as string,
-        }
-      : { id: "", nickname: "", avatarUrl: "" },
-    lastMessage: lastMsg ? mapDMMessage(lastMsg as Record<string, unknown>) : undefined,
-    unreadCount: (c.unread_count ?? c.unreadCount ?? 0) as number,
+    peerId: (c.peer_id ?? c.peerId ?? "") as string,
+    createdAt: (c.created_at ?? c.createdAt ?? 0) as number,
   };
 }
 
