@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useConstellClient } from '@/hooks/useConstellClient';
+import { usePullPresence } from '@/hooks/usePullPresence';
 import { useUIStore } from '@/stores/uiStore';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import type { Member } from '@constell/sdk-js';
@@ -31,6 +32,12 @@ export function MemberList({ communityId }: MemberListProps) {
     });
     return () => { cancelled = true; };
   }, [communityId, client]);
+
+  // Pull presence for the members shown in this list (source of truth = Redis).
+  // Push events keep it fresh in real time; this guarantees correctness on
+  // first view and when members change.
+  const memberIds = useMemo(() => members.map((m) => m.userId), [members]);
+  usePullPresence(memberIds);
 
   // Split into online / offline groups
   const { online, offline } = useMemo(() => {

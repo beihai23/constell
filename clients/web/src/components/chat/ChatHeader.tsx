@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useConstellClient } from '@/hooks/useConstellClient';
+import { usePullPresence } from '@/hooks/usePullPresence';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import type { User } from '@constell/sdk-js';
 import { Hash, Search, Users } from 'lucide-react';
@@ -22,6 +23,10 @@ export function ChatHeader() {
   const onlineUsers = useUIStore((s) => s.onlineUsers);
 
   const [peerUser, setPeerUser] = useState<User | null>(null);
+
+  // Pull the peer's presence from Redis (source of truth) when viewing a DM,
+  // so the status is correct on first view rather than waiting for a push.
+  usePullPresence(peerId ? [peerId] : []);
 
   // Resolve channel info
   const channelList = communityId ? (channels.get(communityId) ?? []) : [];

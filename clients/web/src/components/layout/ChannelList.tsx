@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { useResolvedUser } from '@/hooks/useResolvedUser';
+import { usePullPresence } from '@/hooks/usePullPresence';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
@@ -180,6 +181,17 @@ function SearchResultsList({
 }) {
   const navigate = useNavigate();
 
+  // The searcher actively pulls presence for every user referenced in the
+  // results (matched users, DM peers) so each row shows current status —
+  // not whatever was pushed earlier.
+  const presenceIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const u of results.users) ids.add(u.id);
+    for (const m of results.dmMessages) ids.add(m.peerId);
+    return Array.from(ids);
+  }, [results]);
+  usePullPresence(presenceIds);
+
   if (loading) {
     return (
       <div className="px-2 py-4 text-center text-xs text-[#585b70]">Searching...</div>
@@ -265,18 +277,27 @@ function SearchResultsList({
 }
 
 function UserResult({ user, onClick }: { user: UserSearchResult; onClick: () => void }) {
+  const online = useUIStore((s) => s.onlineUsers.has(user.id));
   return (
     <button
       onClick={onClick}
       className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm text-[#a6adc8] transition-colors hover:bg-[#1e1e2e] hover:text-[#cdd6f4]"
     >
-      <Avatar size="sm">
-        {user.avatarUrl ? (
-          <AvatarImage src={user.avatarUrl} alt={user.nickname} />
-        ) : (
-          <AvatarFallback>{user.nickname.charAt(0).toUpperCase()}</AvatarFallback>
-        )}
-      </Avatar>
+      <div className="relative shrink-0">
+        <Avatar size="sm">
+          {user.avatarUrl ? (
+            <AvatarImage src={user.avatarUrl} alt={user.nickname} />
+          ) : (
+            <AvatarFallback>{user.nickname.charAt(0).toUpperCase()}</AvatarFallback>
+          )}
+        </Avatar>
+        <span
+          className={cn(
+            'absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full ring-2 ring-[#181825]',
+            online ? 'bg-[#a6e3a1]' : 'bg-[#585b70]',
+          )}
+        />
+      </div>
       <span className="truncate">{user.nickname}</span>
     </button>
   );
