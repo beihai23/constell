@@ -242,6 +242,7 @@ type dmMessageResponse struct {
 	SenderID       string `json:"sender_id"`
 	Content        string `json:"content"`
 	CreatedAt      int64  `json:"created_at"`
+	Seq            int64  `json:"seq"`
 }
 
 // SendDM handles POST /api/v1/dm/send.
@@ -277,6 +278,7 @@ func (h *UserHandler) SendDM(w http.ResponseWriter, r *http.Request) {
 		SenderID:       dm.GetSenderId(),
 		Content:        dm.GetContent(),
 		CreatedAt:      dm.GetCreatedAt(),
+		Seq:            dm.GetSeq(),
 	})
 }
 
@@ -290,6 +292,7 @@ func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
 
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
+	sinceSeq := int64FromQuery(r, "since_seq", 0)
 
 	cr := connect.NewRequest(&userv1.GetDMHistoryRequest{
 		TargetUserId: peerID,
@@ -297,6 +300,7 @@ func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
 			Limit:  limit,
 			Offset: offset,
 		},
+		SinceSeq: sinceSeq,
 	})
 	forwardAuth(r, cr)
 
@@ -315,6 +319,7 @@ func (h *UserHandler) GetDMHistory(w http.ResponseWriter, r *http.Request) {
 			SenderID:       m.GetSenderId(),
 			Content:        m.GetContent(),
 			CreatedAt:      m.GetCreatedAt(),
+			Seq:            m.GetSeq(),
 		})
 	}
 
@@ -381,4 +386,17 @@ func int32FromQuery(r *http.Request, key string, defaultVal int32) int32 {
 		return defaultVal
 	}
 	return int32(v)
+}
+
+// int64FromQuery parses an int64 query parameter with a default fallback.
+func int64FromQuery(r *http.Request, key string, def int64) int64 {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return def
+	}
+	return v
 }

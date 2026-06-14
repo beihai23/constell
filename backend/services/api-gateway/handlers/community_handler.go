@@ -494,6 +494,7 @@ type messageResponse struct {
 	Content     string               `json:"content"`
 	CreatedAt   int64                `json:"created_at"`
 	UpdatedAt   int64                `json:"updated_at"`
+	Seq         int64                `json:"seq"`
 	Attachments []attachmentResponse `json:"attachments"`
 }
 
@@ -509,6 +510,7 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 		Content:   m.Content,
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
+		Seq:       m.GetSeq(),
 	}
 	for _, a := range m.Attachments {
 		resp.Attachments = append(resp.Attachments, attachmentResponse{
@@ -566,6 +568,7 @@ func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 
 	limit := int32FromQuery(r, "limit", 50)
 	offset := int32FromQuery(r, "offset", 0)
+	sinceSeq := int64FromQuery(r, "since_seq", 0)
 
 	cr := connect.NewRequest(&communityv1.GetMessagesRequest{
 		ChannelId: channelID,
@@ -573,6 +576,7 @@ func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 			Limit:  limit,
 			Offset: offset,
 		},
+		SinceSeq: sinceSeq,
 	})
 	forwardAuth(r, cr)
 
