@@ -266,19 +266,38 @@ func (s *UserService) GetDMHistory(
 		cursor = req.Msg.Pagination.Cursor
 	}
 
-	messages, nextCursor, err := s.repo.GetDMHistory(ctx, conv.ID, int(limit), cursor)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal,
-			fmt.Errorf("failed to get DM history: %w", err))
-	}
+	pbMessages := make([]*pbv1.DMMessage, 0)
+	var nextCursor string
 
-	pbMessages := make([]*pbv1.DMMessage, 0, len(messages))
-	for _, m := range messages {
-		pbMessages = append(pbMessages, &pbv1.DMMessage{
-			Id: m.ID, ConversationId: m.ConversationID,
-			SenderId: m.SenderID, Content: m.Content,
-			CreatedAt: m.CreatedAt.Unix(),
-		})
+	if req.Msg.SinceSeq > 0 {
+		// Backfill path: messages newer than since_seq, ascending.
+		sinceMsgs, err := s.repo.GetDMMessagesSince(ctx, conv.ID, req.Msg.SinceSeq, int(limit))
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal,
+				fmt.Errorf("failed to get DM messages since: %w", err))
+		}
+		for _, m := range sinceMsgs {
+			pbMessages = append(pbMessages, &pbv1.DMMessage{
+				Id: m.ID, ConversationId: m.ConversationID,
+				SenderId: m.SenderID, Content: m.Content,
+				CreatedAt: m.CreatedAt.Unix(), Seq: m.Seq,
+			})
+		}
+	} else {
+		// History-scroll path: cursor pagination, descending.
+		messages, c, err := s.repo.GetDMHistory(ctx, conv.ID, int(limit), cursor)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal,
+				fmt.Errorf("failed to get DM history: %w", err))
+		}
+		nextCursor = c
+		for _, m := range messages {
+			pbMessages = append(pbMessages, &pbv1.DMMessage{
+				Id: m.ID, ConversationId: m.ConversationID,
+				SenderId: m.SenderID, Content: m.Content,
+				CreatedAt: m.CreatedAt.Unix(), Seq: m.Seq,
+			})
+		}
 	}
 
 	hasMore := nextCursor != ""

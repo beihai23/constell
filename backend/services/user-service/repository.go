@@ -44,6 +44,7 @@ type DMMessageRow struct {
 	SenderID       string
 	Content        string
 	CreatedAt      time.Time
+	Seq            int64
 }
 
 // Repository handles database operations for the user service.
@@ -205,9 +206,9 @@ func (r *Repository) InsertDMMessage(ctx context.Context, conversationID, sender
 	var msg DMMessageRow
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO dm_messages (conversation_id, sender_id, content)
-		 VALUES ($1, $2, $3) RETURNING id, conversation_id, sender_id, content, created_at`,
+		 VALUES ($1, $2, $3) RETURNING id, conversation_id, sender_id, content, created_at, seq`,
 		conversationID, senderID, content,
-	).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Content, &msg.CreatedAt)
+	).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Content, &msg.CreatedAt, &msg.Seq)
 	if err != nil {
 		return nil, fmt.Errorf("insert dm message: %w", err)
 	}
@@ -219,7 +220,7 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 	var args []interface{}
 	args = append(args, conversationID)
 	query := `
-		SELECT id, conversation_id, sender_id, content, created_at
+		SELECT id, conversation_id, sender_id, content, created_at, seq
 		FROM dm_messages WHERE conversation_id = $1`
 
 	argIdx := 2
@@ -241,7 +242,7 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 	for rows.Next() {
 		var m DMMessageRow
 		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderID,
-			&m.Content, &m.CreatedAt); err != nil {
+			&m.Content, &m.CreatedAt, &m.Seq); err != nil {
 			return nil, "", fmt.Errorf("scan dm message: %w", err)
 		}
 		messages = append(messages, &m)
@@ -253,6 +254,37 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 		messages = messages[:limit]
 	}
 	return messages, nextCursor, nil
+}
+
+// GetDMMessagesSince returns messages with seq > sinceSeq, ordered ascending
+// (oldest first) so the client can append them in order during backfill.
+func (r *Repository) GetDMMessagesSince(ctx context.Context, conversationID string, sinceSeq int64, limit int) ([]*DMMessageRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, conversation_id, sender_id, content, created_at, seq
+		 FROM dm_messages
+		 WHERE conversation_id = $1 AND seq > $2
+		 ORDER BY seq ASC
+		 LIMIT $3`,
+		conversationID, sinceSeq, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get dm messages since: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*DMMessageRow
+	for rows.Next() {
+		var m DMMessageRow
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderID,
+			&m.Content, &m.CreatedAt, &m.Seq); err != nil {
+			return nil, fmt.Errorf("scan dm message: %w", err)
+		}
+		messages = append(messages, &m)
+	}
+	return messages, nil
 }
 
 // GetDMConversations returns conversations for a user, newest first.
