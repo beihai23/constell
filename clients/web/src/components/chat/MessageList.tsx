@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams } from 'react-router';
 import { useMessagesStore } from '@/stores/messagesStore';
+import { useSyncStore } from '@/stores/syncStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { MessageBubble } from './MessageBubble';
@@ -30,6 +31,8 @@ export function MessageList() {
   const messageStatus = useMessagesStore((s) => s.messageStatus);
   const setChannelMessages = useMessagesStore((s) => s.setChannelMessages);
   const setDMMessages = useMessagesStore((s) => s.setDMMessages);
+  const advanceDM = useSyncStore((s) => s.advanceDM);
+  const advanceChannel = useSyncStore((s) => s.advanceChannel);
 
   // Current messages based on route
   const messages: RenderableMessage[] = peerId
@@ -80,6 +83,10 @@ export function MessageList() {
     if (channelId) {
       client.getChannelHistory(channelId).then((result) => {
         setChannelMessages(channelId, [...result.items].reverse());
+        // Seed the backfill cursor to the newest loaded seq so the next
+        // useMessageSync tick fetches only NEWER messages, not the whole page.
+        const maxSeq = result.items.reduce((acc, m) => (m.seq > acc ? m.seq : acc), 0);
+        if (maxSeq > 0) advanceChannel(channelId, maxSeq);
       }).catch(() => {
         // Silently fail — empty state shown
       });
@@ -87,11 +94,13 @@ export function MessageList() {
     if (peerId) {
       client.getDMHistory(peerId).then((result) => {
         setDMMessages(peerId, [...result.items].reverse());
+        const maxSeq = result.items.reduce((acc, m) => (m.seq > acc ? m.seq : acc), 0);
+        if (maxSeq > 0) advanceDM(peerId, maxSeq);
       }).catch(() => {
         // Silently fail
       });
     }
-  }, [channelId, peerId, client, setChannelMessages, setDMMessages]);
+  }, [channelId, peerId, client, setChannelMessages, setDMMessages, advanceChannel, advanceDM]);
 
   // Load more when scrolled near top
   const handleScroll = useCallback(() => {
