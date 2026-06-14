@@ -106,7 +106,7 @@ func main() {
 	})
 
 	// 8. Wire up store, subscriber, and service
-	store := NewStore(rdb)
+	store := NewStore(rdb, pool)
 
 	subscriber := NewSubscriber(natsResult.Conn, natsResult.JS, store, pool)
 	if err := subscriber.SubscribeAll(); err != nil {

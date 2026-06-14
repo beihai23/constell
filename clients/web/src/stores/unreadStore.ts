@@ -18,8 +18,14 @@ export const useUnreadStore = create<UnreadState>((set) => ({
 
   setUnreads: (data) =>
     set({
+      // Key DM unreads by peer id — every other DM surface (dmMessages,
+      // live increments, navigation) is peer-keyed, so the unread map must
+      // match. Entries without a resolvable peer are dropped rather than
+      // keyed by conversation id (which surfaced phantom contacts).
       dmUnreads: new Map(
-        data.dmConversations.map((c) => [c.conversationId, c.count]),
+        data.dmConversations
+          .filter((c) => c.peerId)
+          .map((c) => [c.peerId, c.count]),
       ),
       channelUnreads: new Map(
         data.channels.map((c) => [c.channelId, c.count]),

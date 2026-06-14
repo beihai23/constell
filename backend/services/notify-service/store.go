@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -23,14 +24,16 @@ type UnreadDM struct {
 }
 
 // Store manages notification state in Redis: message counters, read pointers,
-// and the user->channel/conversation membership sets.
+// and the user->channel/conversation membership sets. The pool is used to
+// resolve DM conversation participants (so unread state can be keyed by peer).
 type Store struct {
-	rdb *goredis.Client
+	rdb  *goredis.Client
+	pool *pgxpool.Pool
 }
 
 // NewStore creates a Store backed by the given Redis client.
-func NewStore(rdb *goredis.Client) *Store {
-	return &Store{rdb: rdb}
+func NewStore(rdb *goredis.Client, pool *pgxpool.Pool) *Store {
+	return &Store{rdb: rdb, pool: pool}
 }
 
 // ---------- Key helpers ----------
@@ -260,6 +263,38 @@ func (s *Store) GetUnreadDMs(ctx context.Context, userID string) ([]UnreadDM, er
 			})
 		}
 	}
+
+	// Resolve the peer (the other participant) for each unread conversation so
+	// clients can key unread state by peer id rather than conversation id.
+	// Without this, the peer id is empty and clients would fall back to using
+	// the conversation id as the peer — surfacing phantom contacts.
+	if len(result) > 0 && s.pool != nil {
+		peerIDs := make([]string, len(result))
+		for i, u := range result {
+			peerIDs[i] = u.ConversationID
+		}
+		rows, err := s.pool.Query(ctx,
+			`SELECT id, user_a_id, user_b_id FROM dm_conversations WHERE id = ANY($1)`, peerIDs)
+		if err != nil {
+			return nil, fmt.Errorf("query dm_conversations peers: %w", err)
+		}
+		peerOf := make(map[string]string, len(result))
+		for rows.Next() {
+			var id, userA, userB string
+			if err := rows.Scan(&id, &userA, &userB); err == nil {
+				if userA == userID {
+					peerOf[id] = userB
+				} else {
+					peerOf[id] = userA
+				}
+			}
+		}
+		rows.Close()
+		for i := range result {
+			result[i].PeerID = peerOf[result[i].ConversationID]
+		}
+	}
+
 	return result, nil
 }
 

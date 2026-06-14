@@ -73,18 +73,20 @@ export function MessageList() {
     }
   }, [messages.length]);
 
-  // Load history on mount or route change
+  // Load history on mount or route change. The backend returns pages in
+  // DESC order (newest first) for cursor pagination, so reverse to ASC
+  // (oldest at top, newest at bottom) for chat display.
   useEffect(() => {
     if (channelId) {
       client.getChannelHistory(channelId).then((result) => {
-        setChannelMessages(channelId, result.items);
+        setChannelMessages(channelId, [...result.items].reverse());
       }).catch(() => {
         // Silently fail — empty state shown
       });
     }
     if (peerId) {
       client.getDMHistory(peerId).then((result) => {
-        setDMMessages(peerId, result.items);
+        setDMMessages(peerId, [...result.items].reverse());
       }).catch(() => {
         // Silently fail
       });

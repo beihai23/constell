@@ -122,6 +122,12 @@ func (s *Subscriber) handleDMCreated(msg *nats.Msg) {
 	// 1. INCR dm_msg_count for the conversation.
 	if err := s.store.IncrementDMMsgCount(ctx, evt.ConversationID); err != nil {
 		slog.Error("increment DM count", "error", err, "conv_id", evt.ConversationID)
+	} else {
+		// The sender has seen their own message — advance their read pointer to
+		// the new total so the conversation isn't flagged unread for them.
+		if err := s.store.MarkDMRead(ctx, evt.SenderID, evt.ConversationID); err != nil {
+			slog.Error("advance sender read pointer", "error", err, "conv_id", evt.ConversationID)
+		}
 	}
 
 	// 2. SADD conversation to both sender and receiver.

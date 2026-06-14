@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useConstellClient } from './useConstellClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useMessagesStore } from '@/stores/messagesStore';
+import { useUsersStore } from '@/stores/usersStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { ChannelMessage, DMMessage } from '@constell/sdk-js';
@@ -15,12 +16,19 @@ export function useClientEvents() {
   const user = useAuthStore((s) => s.user);
   const appendChannelMessage = useMessagesStore((s) => s.appendChannelMessage);
   const appendDMMessage = useMessagesStore((s) => s.appendDMMessage);
+  const setUserProfile = useUsersStore((s) => s.setUser);
   const incrementUnread = useUnreadStore((s) => s.incrementUnread);
   const setOnline = useUIStore((s) => s.setOnline);
   const setOffline = useUIStore((s) => s.setOffline);
   const setWsStatus = useUIStore((s) => s.setWsStatus);
 
   useEffect(() => {
+    // Seed the current user's profile into the users cache so their own
+    // messages resolve to a nickname instantly (no fetch, no UUID flash).
+    // Only seed when we actually have a nickname — a token-derived user may
+    // carry an empty nickname, and seeding that would shadow a real fetch.
+    if (user?.nickname) setUserProfile(user);
+
     const onChannelMessage = (msg: ChannelMessage) => {
       appendChannelMessage(msg.channelId, msg);
       if (msg.authorId !== user?.id) {
@@ -54,5 +62,5 @@ export function useClientEvents() {
       client.off('connected', onConnected);
       client.off('disconnected', onDisconnected);
     };
-  }, [client, user?.id, appendChannelMessage, appendDMMessage, incrementUnread, setOnline, setOffline, setWsStatus]);
+  }, [client, user, user?.id, appendChannelMessage, appendDMMessage, setUserProfile, incrementUnread, setOnline, setOffline, setWsStatus]);
 }

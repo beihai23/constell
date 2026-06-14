@@ -3,7 +3,9 @@ import { useParams } from 'react-router';
 import { toast } from 'sonner';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { useMessagesStore } from '@/stores/messagesStore';
+import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import type { Attachment } from '@constell/sdk-js';
 import { Plus, Send, X, Image, FileText } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,8 @@ export function ChatInput() {
   const client = useConstellClient();
   const appendChannelMessage = useMessagesStore((s) => s.appendChannelMessage);
   const appendDMMessage = useMessagesStore((s) => s.appendDMMessage);
+  const setMessageStatus = useMessagesStore((s) => s.setMessageStatus);
+  const user = useAuthStore((s) => s.user);
   const wsStatus = useUIStore((s) => s.wsStatus);
 
   const [content, setContent] = useState('');
@@ -93,21 +97,66 @@ export function ChatInput() {
 
     setSending(true);
     try {
-      // 1. Upload pending files
+      // 1. Upload pending files first so the optimistic bubble can render them.
       const fileIds: string[] = [];
+      const attachments: Attachment[] = [];
       for (const pf of pendingFiles) {
         const info = await client.uploadFile(pf.data, pf.file.name, pf.file.type);
         fileIds.push(info.id);
+        attachments.push({
+          id: info.id,
+          fileId: info.id,
+          filename: info.filename,
+          contentType: info.contentType,
+          size: info.size,
+          url: info.url,
+          thumbnailUrl: pf.preview ?? info.thumbnailUrl,
+        });
       }
 
-      // 2. Send message
+      // 2. Optimistic insert. The ws-gateway returns a bare ACK (no message
+      //    data) and notify-service only pushes to the *other* participants,
+      //    so without inserting locally the sender would never see their own
+      //    message. The temp id is keyed into messageStatus; on ACK it flips
+      //    to 'sent', on failure to 'failed'.
+      const tempId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const createdAt = Date.now();
       if (channelId) {
-        await client.sendChannelMessage(channelId, trimmed, fileIds.length > 0 ? fileIds : undefined);
+        appendChannelMessage(channelId, {
+          id: tempId,
+          channelId,
+          authorId: user?.id ?? '',
+          content: trimmed,
+          createdAt,
+          updatedAt: createdAt,
+          attachments,
+        });
       } else if (peerId) {
-        await client.sendDM(peerId, trimmed, fileIds.length > 0 ? fileIds : undefined);
+        appendDMMessage(peerId, {
+          id: tempId,
+          conversationId: '',
+          senderId: user?.id ?? '',
+          content: trimmed,
+          createdAt,
+          attachments,
+        });
+      }
+      setMessageStatus(tempId, 'sending');
+
+      // 3. Send message; flip status based on the ACK / error.
+      try {
+        if (channelId) {
+          await client.sendChannelMessage(channelId, trimmed, fileIds.length > 0 ? fileIds : undefined);
+        } else if (peerId) {
+          await client.sendDM(peerId, trimmed, fileIds.length > 0 ? fileIds : undefined);
+        }
+        setMessageStatus(tempId, 'sent');
+      } catch (sendErr) {
+        setMessageStatus(tempId, 'failed');
+        throw sendErr;
       }
 
-      // 3. Clear input
+      // 4. Clear input
       setContent('');
       setPendingFiles([]);
       if (textareaRef.current) {
@@ -118,7 +167,7 @@ export function ChatInput() {
     } finally {
       setSending(false);
     }
-  }, [content, pendingFiles, sending, channelId, peerId, client, appendChannelMessage, appendDMMessage]);
+  }, [content, pendingFiles, sending, channelId, peerId, client, user?.id, appendChannelMessage, appendDMMessage, setMessageStatus]);
 
   // Keyboard handling: Enter sends, Shift+Enter adds newline
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {

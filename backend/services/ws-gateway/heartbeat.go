@@ -41,9 +41,15 @@ func (h *HeartbeatHandler) IsHeartbeatMessage(msg *gatewayv1.ClientMessage) bool
 	return msg.Type == gatewayv1.ClientMessageType_CLIENT_MESSAGE_TYPE_HEARTBEAT
 }
 
-// ResetDeadline extends the read deadline on the WebSocket connection.
+// ResetDeadline extends the read deadline on the WebSocket connection. The
+// deadline must be strictly greater than the client's heartbeat interval:
+// the client sends a heartbeat every `interval`, and if the deadline equals
+// that same `interval` the two race (JS timers drift late), so the connection
+// churns — disconnects and reconnects on every cycle, dropping any push
+// delivered during the brief disconnect window. Using 2x gives a full
+// interval of slack while still detecting truly-dead peers.
 func (h *HeartbeatHandler) ResetDeadline(conn *websocket.Conn) error {
-	if err := conn.SetReadDeadline(time.Now().Add(h.interval)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(h.interval * 2)); err != nil {
 		return fmt.Errorf("set read deadline: %w", err)
 	}
 	return nil

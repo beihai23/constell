@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { useResolvedUser } from '@/hooks/useResolvedUser';
 import type { ChannelMessage, DMMessage, Attachment } from '@constell/sdk-js';
 import { Clock, AlertCircle, Image, FileText } from 'lucide-react';
 
@@ -50,7 +51,11 @@ function formatTime(ts: number): string {
 
 export function MessageBubble({ message, isOwn, status, onRetry }: MessageBubbleProps) {
   const authorId = 'authorId' in message ? message.authorId : message.senderId;
-  const authorName = authorId; // Fallback to ID; a richer store could map to nicknames
+  // Resolve the author's nickname lazily via REST (pull-based, cached in
+  // usersStore). Falls back to the raw id while loading or if lookup fails,
+  // so the bubble always renders something.
+  const author = useResolvedUser(authorId);
+  const authorName = author?.nickname || authorId;
   const color = useMemo(() => usernameColor(authorId), [authorId]);
 
   return (
