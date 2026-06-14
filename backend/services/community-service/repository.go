@@ -60,6 +60,7 @@ type ChannelMessageRow struct {
 	Content   string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Seq       int64
 }
 
 // Repository handles database operations for the community service.
@@ -440,20 +441,22 @@ func (r *Repository) InsertChannelMessage(ctx context.Context, channelID, author
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO channel_messages (channel_id, author_id, content)
 			 VALUES ($1, $2, $3)
-			 RETURNING id, channel_id, author_id, content, created_at, updated_at`,
+			 RETURNING id, channel_id, author_id, content, created_at, updated_at, seq`,
 		channelID, authorID, content,
-	).Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content, &m.CreatedAt, &m.UpdatedAt, &m.Seq)
 	if err != nil {
 		return nil, fmt.Errorf("insert channel message: %w", err)
 	}
 	return &m, nil
 }
 
-// GetChannelMessages fetches messages with cursor pagination.
+// GetChannelMessages fetches messages with cursor pagination. seq is included
+// in the SELECT and Scan so initial history-load messages seed the client's
+// cursor; without it the backfill path would never be entered.
 func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, limit int, cursor string) ([]*ChannelMessageRow, string, error) {
 	var args []interface{}
 	args = append(args, channelID)
-	query := `SELECT id, channel_id, author_id, content, created_at, updated_at
+	query := `SELECT id, channel_id, author_id, content, created_at, updated_at, seq
 			FROM channel_messages WHERE channel_id = $1`
 
 	argIdx := 2
@@ -475,7 +478,7 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 	for rows.Next() {
 		var m ChannelMessageRow
 		if err := rows.Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content,
-			&m.CreatedAt, &m.UpdatedAt); err != nil {
+			&m.CreatedAt, &m.UpdatedAt, &m.Seq); err != nil {
 			return nil, "", fmt.Errorf("scan message: %w", err)
 		}
 		messages = append(messages, &m)
@@ -487,6 +490,37 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 		messages = messages[:limit]
 	}
 	return messages, nextCursor, nil
+}
+
+// GetChannelMessagesSince returns messages with seq > sinceSeq, ordered ascending
+// (oldest first) so the client can append them in order during backfill.
+func (r *Repository) GetChannelMessagesSince(ctx context.Context, channelID string, sinceSeq int64, limit int) ([]*ChannelMessageRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, channel_id, author_id, content, created_at, updated_at, seq
+		 FROM channel_messages
+		 WHERE channel_id = $1 AND seq > $2
+		 ORDER BY seq ASC
+		 LIMIT $3`,
+		channelID, sinceSeq, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get channel messages since: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*ChannelMessageRow
+	for rows.Next() {
+		var m ChannelMessageRow
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content,
+			&m.CreatedAt, &m.UpdatedAt, &m.Seq); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		messages = append(messages, &m)
+	}
+	return messages, nil
 }
 
 // MarshalCommunity serializes a CommunityRow to JSON.

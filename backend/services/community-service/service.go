@@ -693,19 +693,38 @@ func (s *CommunityService) GetMessages(
 		cursor = req.Msg.Pagination.Cursor
 	}
 
-	messages, nextCursor, err := s.repo.GetChannelMessages(ctx, channelID, int(limit), cursor)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal,
-			fmt.Errorf("failed to get messages: %w", err))
-	}
+	pbMessages := make([]*pbv1.ChannelMessage, 0)
+	var nextCursor string
 
-	pbMessages := make([]*pbv1.ChannelMessage, 0, len(messages))
-	for _, m := range messages {
-		pbMessages = append(pbMessages, &pbv1.ChannelMessage{
-			Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
-			Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
-			UpdatedAt: m.UpdatedAt.Unix(),
-		})
+	if req.Msg.SinceSeq > 0 {
+		// Backfill path: messages newer than since_seq, ascending.
+		sinceMsgs, err := s.repo.GetChannelMessagesSince(ctx, channelID, req.Msg.SinceSeq, int(limit))
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal,
+				fmt.Errorf("failed to get messages since: %w", err))
+		}
+		for _, m := range sinceMsgs {
+			pbMessages = append(pbMessages, &pbv1.ChannelMessage{
+				Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
+				Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
+				UpdatedAt: m.UpdatedAt.Unix(), Seq: m.Seq,
+			})
+		}
+	} else {
+		// History-scroll path: cursor pagination, descending.
+		messages, c, err := s.repo.GetChannelMessages(ctx, channelID, int(limit), cursor)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal,
+				fmt.Errorf("failed to get messages: %w", err))
+		}
+		nextCursor = c
+		for _, m := range messages {
+			pbMessages = append(pbMessages, &pbv1.ChannelMessage{
+				Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
+				Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
+				UpdatedAt: m.UpdatedAt.Unix(), Seq: m.Seq,
+			})
+		}
 	}
 
 	hasMore := nextCursor != ""
