@@ -1700,6 +1700,7 @@ type ChannelMessage struct {
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     int64                  `protobuf:"varint,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	Attachments   []*v1.Attachment       `protobuf:"bytes,7,rep,name=attachments,proto3" json:"attachments,omitempty"`
+	Seq           int64                  `protobuf:"varint,8,opt,name=seq,proto3" json:"seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1781,6 +1782,13 @@ func (x *ChannelMessage) GetAttachments() []*v1.Attachment {
 		return x.Attachments
 	}
 	return nil
+}
+
+func (x *ChannelMessage) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
 }
 
 type SendMessageRequest struct {
@@ -1888,9 +1896,12 @@ func (x *SendMessageResponse) GetMessage() *ChannelMessage {
 }
 
 type GetMessagesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	Pagination    *v1.PaginationRequest  `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId  string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Pagination *v1.PaginationRequest  `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	// If non-zero, return only messages with seq > since_seq, ordered ascending
+	// (oldest first) for client backfill. Mutually exclusive with pagination.cursor.
+	SinceSeq      int64 `protobuf:"varint,3,opt,name=since_seq,json=sinceSeq,proto3" json:"since_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1937,6 +1948,13 @@ func (x *GetMessagesRequest) GetPagination() *v1.PaginationRequest {
 		return x.Pagination
 	}
 	return nil
+}
+
+func (x *GetMessagesRequest) GetSinceSeq() int64 {
+	if x != nil {
+		return x.SinceSeq
+	}
+	return 0
 }
 
 type GetMessagesResponse struct {
@@ -2108,7 +2126,7 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"\amembers\x18\x01 \x03(\v2\x1d.community.v1.CommunityMemberR\amembers\x12=\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
-	"pagination\"\xed\x01\n" +
+	"pagination\"\xff\x01\n" +
 	"\x0eChannelMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -2119,20 +2137,22 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\x127\n" +
-	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\"h\n" +
+	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\x12\x10\n" +
+	"\x03seq\x18\b \x01(\x03R\x03seq\"h\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
 	"\bfile_ids\x18\x03 \x03(\tR\afileIds\"M\n" +
 	"\x13SendMessageResponse\x126\n" +
-	"\amessage\x18\x01 \x01(\v2\x1c.community.v1.ChannelMessageR\amessage\"q\n" +
+	"\amessage\x18\x01 \x01(\v2\x1c.community.v1.ChannelMessageR\amessage\"\x8e\x01\n" +
 	"\x12GetMessagesRequest\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\x12<\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1c.common.v1.PaginationRequestR\n" +
-	"pagination\"\x8e\x01\n" +
+	"pagination\x12\x1b\n" +
+	"\tsince_seq\x18\x03 \x01(\x03R\bsinceSeq\"\x8e\x01\n" +
 	"\x13GetMessagesResponse\x128\n" +
 	"\bmessages\x18\x01 \x03(\v2\x1c.community.v1.ChannelMessageR\bmessages\x12=\n" +
 	"\n" +

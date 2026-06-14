@@ -90,6 +90,7 @@ message DMMessage {
   string content = 4;
   int64 created_at = 5;
   repeated common.v1.Attachment attachments = 6;
+  int64 seq = 7;
 }
 
 // --- GetDMHistory ---
@@ -97,6 +98,9 @@ message DMMessage {
 message GetDMHistoryRequest {
   string target_user_id = 1;
   common.v1.PaginationRequest pagination = 2;
+  // If non-zero, return only messages with seq > since_seq, ordered ascending
+  // (oldest first) for client backfill. Mutually exclusive with pagination.cursor.
+  int64 since_seq = 3;
 }
 
 message GetDMHistoryResponse {

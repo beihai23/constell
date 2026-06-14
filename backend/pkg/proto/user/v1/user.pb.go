@@ -562,6 +562,7 @@ type DMMessage struct {
 	Content        string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Attachments    []*v1.Attachment       `protobuf:"bytes,6,rep,name=attachments,proto3" json:"attachments,omitempty"`
+	Seq            int64                  `protobuf:"varint,7,opt,name=seq,proto3" json:"seq,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -638,10 +639,20 @@ func (x *DMMessage) GetAttachments() []*v1.Attachment {
 	return nil
 }
 
+func (x *DMMessage) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
 type GetDMHistoryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TargetUserId  string                 `protobuf:"bytes,1,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
-	Pagination    *v1.PaginationRequest  `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	TargetUserId string                 `protobuf:"bytes,1,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
+	Pagination   *v1.PaginationRequest  `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	// If non-zero, return only messages with seq > since_seq, ordered ascending
+	// (oldest first) for client backfill. Mutually exclusive with pagination.cursor.
+	SinceSeq      int64 `protobuf:"varint,3,opt,name=since_seq,json=sinceSeq,proto3" json:"since_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -688,6 +699,13 @@ func (x *GetDMHistoryRequest) GetPagination() *v1.PaginationRequest {
 		return x.Pagination
 	}
 	return nil
+}
+
+func (x *GetDMHistoryRequest) GetSinceSeq() int64 {
+	if x != nil {
+		return x.SinceSeq
+	}
+	return 0
 }
 
 type GetDMHistoryResponse struct {
@@ -948,7 +966,7 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
 	"\bfile_ids\x18\x03 \x03(\tR\afileIds\">\n" +
 	"\x0eSendDMResponse\x12,\n" +
-	"\amessage\x18\x01 \x01(\v2\x12.user.v1.DMMessageR\amessage\"\xd3\x01\n" +
+	"\amessage\x18\x01 \x01(\v2\x12.user.v1.DMMessageR\amessage\"\xe5\x01\n" +
 	"\tDMMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x1b\n" +
@@ -956,12 +974,14 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x127\n" +
-	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\"y\n" +
+	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\x12\x10\n" +
+	"\x03seq\x18\a \x01(\x03R\x03seq\"\x96\x01\n" +
 	"\x13GetDMHistoryRequest\x12$\n" +
 	"\x0etarget_user_id\x18\x01 \x01(\tR\ftargetUserId\x12<\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1c.common.v1.PaginationRequestR\n" +
-	"pagination\"\x85\x01\n" +
+	"pagination\x12\x1b\n" +
+	"\tsince_seq\x18\x03 \x01(\x03R\bsinceSeq\"\x85\x01\n" +
 	"\x14GetDMHistoryResponse\x12.\n" +
 	"\bmessages\x18\x01 \x03(\v2\x12.user.v1.DMMessageR\bmessages\x12=\n" +
 	"\n" +

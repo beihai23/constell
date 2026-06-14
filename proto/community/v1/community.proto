@@ -215,6 +215,7 @@ message ChannelMessage {
   int64 created_at = 5;
   int64 updated_at = 6;
   repeated common.v1.Attachment attachments = 7;
+  int64 seq = 8;
 }
 
 message SendMessageRequest {
@@ -230,6 +231,9 @@ message SendMessageResponse {
 message GetMessagesRequest {
   string channel_id = 1;
   common.v1.PaginationRequest pagination = 2;
+  // If non-zero, return only messages with seq > since_seq, ordered ascending
+  // (oldest first) for client backfill. Mutually exclusive with pagination.cursor.
+  int64 since_seq = 3;
 }
 
 message GetMessagesResponse {
