@@ -266,6 +266,7 @@ describe("ConstellClient", () => {
         content: "Hello!",
         createdAt: 1700000000000,
         attachments: [],
+        seq: 0,
       });
 
       client.disconnect();
@@ -303,6 +304,7 @@ describe("ConstellClient", () => {
         createdAt: 1700000001000,
         updatedAt: 1700000001000,
         attachments: [],
+        seq: 0,
       });
 
       client.disconnect();
@@ -595,8 +597,44 @@ describe("ConstellClient", () => {
         content: "Hi",
         createdAt: 1700000000000,
         attachments: [],
+        seq: 0,
       });
       expect(result.hasMore).toBe(false);
+    });
+
+    it("getDMHistory emits since_seq query param when sinceSeq is set", async () => {
+      const restResponse = {
+        items: [
+          {
+            id: "m1",
+            conversation_id: "conv1",
+            sender_id: "u2",
+            content: "Hi",
+            created_at: 1700000000000,
+            attachments: [],
+            seq: 9,
+          },
+        ],
+        has_more: false,
+      };
+
+      vi.spyOn(client.rest, "get").mockResolvedValueOnce(restResponse);
+
+      const result = await client.getDMHistory("u2", { sinceSeq: 7 });
+
+      // The query string must carry since_seq=7
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/dm/history/u2?since_seq=7");
+      // The mapped DM message must carry seq from snake_case REST
+      expect(result.items[0].seq).toBe(9);
+    });
+
+    it("getDMHistory omits since_seq when sinceSeq is unset", async () => {
+      vi.spyOn(client.rest, "get").mockResolvedValueOnce({ items: [], has_more: false });
+
+      await client.getDMHistory("u2", { limit: 10 });
+
+      // No since_seq in the query string
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/dm/history/u2?limit=10");
     });
 
     // --- DM Conversations ---
@@ -662,7 +700,33 @@ describe("ConstellClient", () => {
         createdAt: 1700000000000,
         updatedAt: 1700000000000,
         attachments: [],
+        seq: 0,
       });
+    });
+
+    it("getChannelHistory maps seq from snake_case REST response", async () => {
+      const restResponse = {
+        items: [
+          {
+            id: "m1",
+            channel_id: "ch1",
+            author_id: "u1",
+            content: "Hello channel",
+            created_at: 1700000000000,
+            updated_at: 1700000000000,
+            attachments: [],
+            seq: 42,
+          },
+        ],
+        has_more: false,
+      };
+
+      vi.spyOn(client.rest, "get").mockResolvedValueOnce(restResponse);
+
+      const result = await client.getChannelHistory("ch1", { sinceSeq: 40 });
+
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/channels/ch1/messages?since_seq=40");
+      expect(result.items[0].seq).toBe(42);
     });
 
     // --- Communities ---

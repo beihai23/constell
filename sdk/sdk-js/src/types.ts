@@ -43,6 +43,8 @@ export interface DMMessage {
   content: string;
   createdAt: number;
   attachments: Attachment[];
+  /** Monotonically increasing per-conversation sequence number (0 if unknown). */
+  seq: number;
 }
 
 /** A DM conversation summary (for listing). */
@@ -98,6 +100,8 @@ export interface ChannelMessage {
   createdAt: number;
   updatedAt: number;
   attachments: Attachment[];
+  /** Monotonically increasing per-channel sequence number (0 if unknown). */
+  seq: number;
 }
 
 // ---- File (file/v1) -------------------------------------------------------
@@ -244,6 +248,8 @@ export interface PageOptions {
   offset?: number;
   /** Cursor-based pagination (mutually exclusive with offset). */
   cursor?: string;
+  /** If set, request messages with seq > sinceSeq (backfill). */
+  sinceSeq?: number;
 }
 
 /** Wrapper returned by paginated list methods. */

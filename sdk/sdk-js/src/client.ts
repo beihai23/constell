@@ -108,6 +108,7 @@ function mapDMMessage(m: Record<string, unknown>): DMMessage {
     content: m.content as string,
     createdAt: (m.created_at ?? m.createdAt) as number,
     attachments: ((m.attachments ?? []) as Record<string, unknown>[]).map(mapAttachment),
+    seq: (m.seq ?? 0) as number,
   };
 }
 
@@ -121,6 +122,7 @@ function mapChannelMessage(m: Record<string, unknown>): ChannelMessage {
     createdAt: (m.created_at ?? m.createdAt) as number,
     updatedAt: (m.updated_at ?? m.updatedAt) as number,
     attachments: ((m.attachments ?? []) as Record<string, unknown>[]).map(mapAttachment),
+    seq: (m.seq ?? 0) as number,
   };
 }
 
@@ -191,6 +193,7 @@ function buildPageQuery(opts?: PageOptions): string {
   if (opts.limit !== undefined) params.push(`limit=${opts.limit}`);
   if (opts.offset !== undefined) params.push(`offset=${opts.offset}`);
   if (opts.cursor !== undefined) params.push(`cursor=${encodeURIComponent(opts.cursor)}`);
+  if (opts.sinceSeq !== undefined) params.push(`since_seq=${opts.sinceSeq}`);
   return params.length > 0 ? `?${params.join("&")}` : "";
 }
 
@@ -683,6 +686,7 @@ export class ConstellClient {
             url: a.url,
             thumbnailUrl: a.thumbnailUrl,
           })),
+          seq: 0, // DMReceivedEvent doesn't carry seq; REST history is authoritative for seq
         });
         break;
       }
@@ -706,6 +710,7 @@ export class ConstellClient {
             url: a.url,
             thumbnailUrl: a.thumbnailUrl,
           })),
+          seq: 0, // ChannelMessageEvent doesn't carry seq; REST history is authoritative for seq
         });
         break;
       }
