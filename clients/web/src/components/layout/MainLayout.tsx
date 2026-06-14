@@ -5,12 +5,16 @@ import { ChannelList, searchInputRef } from './ChannelList';
 import { ConnectionStatusBar } from './ConnectionStatusBar';
 import { useClientEvents } from '@/hooks/useClientEvents';
 import { useInitialData } from '@/hooks/useInitialData';
+import { useMessageSync } from '@/hooks/useMessageSync';
 
 export function MainLayout() {
   // Bridge SDK events to Zustand stores (called once at top level)
   useClientEvents();
   // Load initial data (communities, channels, unreads) after login
   useInitialData();
+  // Backfill any missed messages (lost push / reconnect / visibility). Mounted
+  // once alongside useClientEvents so it lives exactly at the authenticated-app root.
+  useMessageSync();
 
   // ⌘K / Ctrl+K → focus the search input in ChannelList
   const handleKeyDown = useCallback((e: KeyboardEvent) => {

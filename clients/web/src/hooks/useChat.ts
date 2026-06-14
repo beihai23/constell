@@ -3,6 +3,7 @@ import { useConstellClient } from './useConstellClient';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
+import { useSyncStore } from '@/stores/syncStore';
 import type { ChannelMessage } from '@constell/sdk-js';
 
 /**
@@ -15,6 +16,8 @@ export function useChat() {
   const setChannelMessages = useMessagesStore((s) => s.setChannelMessages);
   const setDMMessages = useMessagesStore((s) => s.setDMMessages);
   const clearUnread = useUnreadStore((s) => s.clearUnread);
+  const advanceDM = useSyncStore((s) => s.advanceDM);
+  const advanceChannel = useSyncStore((s) => s.advanceChannel);
 
   // Subscribe to the full map; derive current channel's messages from the
   // communitiesStore's currentChannelId (which lives in the hook closure).
@@ -29,18 +32,20 @@ export function useChat() {
     async (channelId: string) => {
       const result = await client.getChannelHistory(channelId);
       setChannelMessages(channelId, result.items);
+      result.items.forEach((m: { seq: number }) => advanceChannel(channelId, m.seq));
       clearUnread('channel', channelId);
     },
-    [client, setChannelMessages, clearUnread],
+    [client, setChannelMessages, clearUnread, advanceChannel],
   );
 
   const loadDMHistory = useCallback(
     async (peerId: string) => {
       const result = await client.getDMHistory(peerId);
       setDMMessages(peerId, result.items);
+      result.items.forEach((m: { seq: number }) => advanceDM(peerId, m.seq));
       clearUnread('dm', peerId);
     },
-    [client, setDMMessages, clearUnread],
+    [client, setDMMessages, clearUnread, advanceDM],
   );
 
   const sendChannelMessage = useCallback(
