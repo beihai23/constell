@@ -993,4 +993,79 @@ describe("ConstellClient", () => {
       expect(client.ws).toBeDefined();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Dead-session handling: emit `unauthorized` + stop reconnecting when the
+  // refresh token is permanently rejected, so the app can redirect to login
+  // instead of looping forever.
+  // ---------------------------------------------------------------------------
+  describe("dead-session (unauthorized)", () => {
+    it("emits unauthorized, clears tokens, and stops reconnecting on refresh 401", async () => {
+      const storage = createStorage();
+      // expired access token forces getValidToken → refresh
+      storage.setItem("constell_access_token", fakeJWT({ sub: "u1", exp: Date.now() / 1000 - 100 }));
+      storage.setItem("constell_refresh_token", fakeJWT({ sub: "u1", exp: Date.now() / 1000 + 86400 }));
+
+      const capturedMocks: MockWebSocket[] = [];
+      const factory = (url: string) => {
+        const ws = new MockWebSocket(url);
+        capturedMocks.push(ws);
+        return ws as unknown as WebSocket;
+      };
+      const client = new ConstellClient({ apiUrl: API_URL, wsUrl: WS_URL }, storage, factory as any);
+
+      // refresh endpoint permanently rejects
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "invalid refresh token" }), { status: 401 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const unauthorized = vi.fn();
+      client.on("unauthorized", unauthorized);
+
+      client.connect();
+      await vi.waitFor(() => expect(unauthorized).toHaveBeenCalledTimes(1));
+
+      // WS loop stopped (intentional disconnect), not stuck Reconnecting
+      expect(client.status).toBe(WSStatus.Disconnected);
+
+      // tokens cleared by refresh()'s logout()
+      expect(storage.getItem("constell_access_token")).toBeNull();
+      expect(storage.getItem("constell_refresh_token")).toBeNull();
+
+      // No new WS attempt spawns after the dead-session signal (loop stopped)
+      const mocksAfter = capturedMocks.length;
+      await new Promise((r) => setTimeout(r, 60));
+      expect(capturedMocks.length).toBe(mocksAfter);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("does NOT emit unauthorized on a transient network error during refresh", async () => {
+      const storage = createStorage();
+      storage.setItem("constell_access_token", fakeJWT({ sub: "u1", exp: Date.now() / 1000 - 100 }));
+      storage.setItem("constell_refresh_token", fakeJWT({ sub: "u1", exp: Date.now() / 1000 + 86400 }));
+
+      const factory = (url: string) => new MockWebSocket(url) as unknown as WebSocket;
+      const client = new ConstellClient({ apiUrl: API_URL, wsUrl: WS_URL }, storage, factory as any);
+
+      // refresh fails with a network error (fetch throws), not a 401
+      const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const unauthorized = vi.fn();
+      client.on("unauthorized", unauthorized);
+
+      client.connect();
+      // give the failed refresh + any potential emit a chance to fire
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(unauthorized).not.toHaveBeenCalled();
+      // tokens NOT cleared on a transient failure (retry should keep them)
+      expect(storage.getItem("constell_refresh_token")).not.toBeNull();
+
+      vi.unstubAllGlobals();
+      client.disconnect();
+    });
+  });
 });

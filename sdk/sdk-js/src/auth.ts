@@ -258,8 +258,12 @@ export class AuthManager {
         this.storeTokens(res.access_token, res.refresh_token);
         return res.access_token;
       } catch (err) {
-        // Refresh failed — clear tokens so caller knows to re-authenticate
-        this.logout();
+        // On a permanent auth failure (refresh token rejected 4xx), the
+        // session can't recover without re-login — clear stored tokens. On a
+        // transient NetworkError, keep them so the next retry can succeed.
+        if (err instanceof AuthError) {
+          this.logout();
+        }
         throw err;
       } finally {
         this.refreshPromise = null;

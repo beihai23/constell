@@ -42,7 +42,7 @@ import type {
   PageOptions,
   PageResult,
 } from "./types.js";
-import { ConstellError, NetworkError } from "./errors.js";
+import { ConstellError, NetworkError, AuthError } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Public event map — events consumers can subscribe to via client.on(...)
@@ -64,6 +64,13 @@ export interface ClientEvents {
   connected: () => void;
   /** WebSocket disconnected (unintentional). */
   disconnected: () => void;
+  /**
+   * Authentication is gone for good (no token, or refresh rejected with 4xx).
+   * The session cannot recover without re-login. Consumers should clear their
+   * auth state and redirect to login. Emitted at most once per dead session —
+   * the WSManager stops reconnecting after this fires.
+   */
+  unauthorized: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +249,23 @@ export class ConstellClient {
     this.rest = new RESTClient(this.auth, config.apiUrl);
     this.ws = new WSManager(
       config.wsUrl,
-      () => this.auth.getValidToken(),
+      // Wrap the token getter: a permanent auth failure (no token, or refresh
+      // rejected 4xx — both AuthError, NOT NetworkError) means the session is
+      // dead. Emit `unauthorized` so consumers can redirect to login, and
+      // disconnect so the WSManager stops its reconnect loop instead of
+      // spinning forever against a session that can't recover without
+      // re-login. Transient NetworkErrors re-throw unchanged → retry continues.
+      async () => {
+        try {
+          return await this.auth.getValidToken();
+        } catch (err) {
+          if (err instanceof AuthError) {
+            this.bus.emit("unauthorized");
+            this.ws.disconnect();
+          }
+          throw err;
+        }
+      },
       this.wsBus,
       wsFactory,
     );
