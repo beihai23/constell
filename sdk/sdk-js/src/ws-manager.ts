@@ -67,16 +67,30 @@ export class WSManager {
     return this._status;
   }
 
-  /** Open a WebSocket connection. No-op if already connected/connecting. */
+  /**
+   * Open a WebSocket connection. No-op if already connected or connecting.
+   *
+   * If a backoff reconnect is pending (Reconnecting), cancel it and connect
+   * immediately: a fresh connect means a valid token just became available
+   * (e.g. the user logged in / registered), so we should not wait out the
+   * backoff timer to recover.
+   */
   connect(): void {
+    this.intentionalClose = false;
     if (
       this._status === WSStatus.Connecting ||
-      this._status === WSStatus.Connected ||
-      this._status === WSStatus.Reconnecting
+      this._status === WSStatus.Connected
     ) {
       return;
     }
-    this.intentionalClose = false;
+    if (this._status === WSStatus.Reconnecting) {
+      // Cancel the pending backoff and start over immediately.
+      if (this.reconnectTimer !== null) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      this.reconnectAttempt = 0;
+    }
     this.doConnect();
   }
 

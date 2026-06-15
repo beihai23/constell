@@ -282,4 +282,42 @@ describe("WSManager", () => {
     vi.useRealTimers();
     manager.disconnect();
   });
+
+  // ---------------------------------------------------------------------------
+  // 7. connect() while Reconnecting reconnects immediately (no backoff wait)
+  // ---------------------------------------------------------------------------
+  it("connect() while Reconnecting reconnects immediately instead of waiting for backoff", async () => {
+    const { manager, bus, getLastMock } = createManager();
+    const connectedHandler = vi.fn();
+    bus.on("connected", connectedHandler);
+
+    vi.useFakeTimers();
+
+    manager.connect();
+    await vi.waitFor(() => expect(getLastMock()).toBeDefined());
+    const ws1 = getLastMock()!;
+    ws1.simulateOpen();
+    expect(connectedHandler).toHaveBeenCalledTimes(1);
+
+    // Unexpected close → a backoff reconnect is scheduled.
+    ws1.simulateClose(1006);
+    expect(manager.status).toBe(WSStatus.Reconnecting);
+
+    // A fresh connect() — as happens after login/register stores a valid
+    // token — must reconnect NOW, not wait for the backoff timer. doConnect
+    // flips status to Connecting synchronously (before its first await), so
+    // this assertion needs no timer advance.
+    manager.connect();
+    expect(manager.status).toBe(WSStatus.Connecting);
+
+    // The token fetch resolves and a new socket is opened.
+    await vi.waitFor(() => expect(getLastMock()).not.toBe(ws1));
+    const ws2 = getLastMock()!;
+    ws2.simulateOpen();
+    expect(manager.status).toBe(WSStatus.Connected);
+    expect(connectedHandler).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+    manager.disconnect();
+  });
 });
