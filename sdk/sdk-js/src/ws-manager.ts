@@ -46,6 +46,13 @@ export class WSManager {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private intentionalClose = false;
+  /**
+   * Set when connect() is called while a handshake is already in flight
+   * (status Connecting). The in-flight attempt may be racing on a stale
+   * token (e.g. the reconnect loop's); when it settles we retry immediately
+   * with the now-current token instead of backing off.
+   */
+  private pendingReconnect = false;
   private subscribedChannels: string[] = [];
   private createWebSocket: WebSocketFactory;
 
@@ -77,10 +84,14 @@ export class WSManager {
    */
   connect(): void {
     this.intentionalClose = false;
-    if (
-      this._status === WSStatus.Connecting ||
-      this._status === WSStatus.Connected
-    ) {
+    if (this._status === WSStatus.Connected) {
+      return;
+    }
+    if (this._status === WSStatus.Connecting) {
+      // A handshake is in flight — likely the reconnect loop's, possibly
+      // racing on a stale token. Remember to retry the instant it settles so
+      // a fresh valid token (e.g. just-logged-in) isn't stranded behind it.
+      this.pendingReconnect = true;
       return;
     }
     if (this._status === WSStatus.Reconnecting) {
@@ -97,6 +108,7 @@ export class WSManager {
   /** Close the connection intentionally (no reconnect). */
   disconnect(): void {
     this.intentionalClose = true;
+    this.pendingReconnect = false;
     this.cleanup();
 
     if (this.ws) {
@@ -150,8 +162,16 @@ export class WSManager {
     try {
       token = await this.getToken();
     } catch {
-      // If token retrieval fails, schedule a reconnect.
-      this.scheduleReconnect();
+      // Token retrieval failed. If a fresh connect() arrived during this
+      // in-flight attempt (and the session isn't intentionally closed),
+      // retry immediately with the now-current token; otherwise back off.
+      if (this.pendingReconnect && !this.intentionalClose) {
+        this.pendingReconnect = false;
+        this.reconnectAttempt = 0;
+        this.doConnect();
+      } else {
+        this.scheduleReconnect();
+      }
       return;
     }
 
@@ -163,6 +183,7 @@ export class WSManager {
       this.ws = ws;
       this.setStatus(WSStatus.Connected);
       this.reconnectAttempt = 0;
+      this.pendingReconnect = false;
       this.startHeartbeat();
       this.resubscribeChannels();
       this.bus.emit("connected");
@@ -183,8 +204,16 @@ export class WSManager {
       }
 
       if (!this.intentionalClose) {
-        this.bus.emit("disconnected");
-        this.scheduleReconnect();
+        if (this.pendingReconnect) {
+          // A fresh connect() arrived while this attempt was in flight —
+          // retry now with the current token rather than backing off.
+          this.pendingReconnect = false;
+          this.reconnectAttempt = 0;
+          this.doConnect();
+        } else {
+          this.bus.emit("disconnected");
+          this.scheduleReconnect();
+        }
       }
     };
 

@@ -320,4 +320,44 @@ describe("WSManager", () => {
     vi.useRealTimers();
     manager.disconnect();
   });
+
+  // ---------------------------------------------------------------------------
+  // 8. connect() during an in-flight handshake (Connecting) retries once that
+  // attempt settles, instead of stranding a fresh token behind a backoff.
+  // ---------------------------------------------------------------------------
+  it("connect() during Connecting retries immediately once the in-flight attempt fails", async () => {
+    const { manager, bus, getLastMock } = createManager();
+    const connectedHandler = vi.fn();
+    bus.on("connected", connectedHandler);
+
+    vi.useFakeTimers();
+
+    manager.connect();
+    await vi.waitFor(() => expect(getLastMock()).toBeDefined());
+    const ws1 = getLastMock()!;
+    // Still mid-handshake (onopen not simulated)
+    expect(manager.status).toBe(WSStatus.Connecting);
+
+    // Fresh connect() while a handshake is in flight (e.g. user just logged
+    // in with a valid token). It can't interrupt the in-flight attempt.
+    manager.connect();
+    expect(manager.status).toBe(WSStatus.Connecting);
+
+    // The in-flight attempt fails (server closed before handshake completed).
+    ws1.simulateClose(1006);
+
+    // pendingReconnect → immediate retry, no backoff wait. doConnect flips
+    // status to Connecting synchronously, so this needs no timer advance.
+    expect(manager.status).toBe(WSStatus.Connecting);
+    await vi.waitFor(() => expect(getLastMock()).not.toBe(ws1));
+    const ws2 = getLastMock()!;
+    expect(ws2).not.toBe(ws1);
+
+    ws2.simulateOpen();
+    expect(manager.status).toBe(WSStatus.Connected);
+    expect(connectedHandler).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+    manager.disconnect();
+  });
 });
