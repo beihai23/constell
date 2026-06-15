@@ -22,11 +22,15 @@ lint:
 	buf lint
 
 # --- Database Migrations ---
+# Run from backend/ (where go.mod lives) against the Docker-mapped port 15432.
+# Override with: make migrate-up DEV_DATABASE_URL=...
+MIGRATE_DSN := $(DEV_DATABASE_URL)
+MIGRATE_DIR := $(CURDIR)/deploy/migrations
 migrate-up:
-	go run ./backend/tools/migrate/main.go up
+	cd backend && go run ./tools/migrate/main.go -dir $(MIGRATE_DIR) -dsn "$(MIGRATE_DSN)" up
 
 migrate-down:
-	go run ./backend/tools/migrate/main.go down
+	cd backend && go run ./tools/migrate/main.go -dir $(MIGRATE_DIR) -dsn "$(MIGRATE_DSN)" down
 
 # --- Tests ---
 test:

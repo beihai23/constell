@@ -643,16 +643,8 @@ describe("ConstellClient", () => {
         items: [
           {
             id: "conv1",
-            peer: { id: "u2", nickname: "Alice", avatar_url: "http://avatar" },
-            last_message: {
-              id: "m1",
-              conversation_id: "conv1",
-              sender_id: "u2",
-              content: "Hey",
-              created_at: 1700000000000,
-              attachments: [],
-            },
-            unread_count: 3,
+            peer_id: "u2",
+            created_at: 1700000000000,
           },
         ],
         has_more: true,
@@ -664,8 +656,9 @@ describe("ConstellClient", () => {
       const result = await client.getDMConversations({ cursor: "abc" });
 
       expect(client.rest.get).toHaveBeenCalledWith("/api/v1/dm/conversations?cursor=abc");
-      expect(result.items[0].peer.nickname).toBe("Alice");
-      expect(result.items[0].unreadCount).toBe(3);
+      expect(result.items[0].id).toBe("conv1");
+      expect(result.items[0].peerId).toBe("u2");
+      expect(result.items[0].createdAt).toBe(1700000000000);
       expect(result.hasMore).toBe(true);
       expect(result.nextCursor).toBe("cursor123");
     });
@@ -731,16 +724,19 @@ describe("ConstellClient", () => {
 
     // --- Communities ---
     it("listCommunities maps response", async () => {
-      const restResponse = [
-        { id: "s1", name: "Community 1", description: "Desc", icon_url: "", owner_id: "u1", created_at: 0, updated_at: 0 },
-      ];
+      const restResponse = {
+        items: [
+          { id: "s1", name: "Community 1", description: "Desc", icon_url: "", owner_id: "u1", created_at: 0, updated_at: 0 },
+        ],
+        has_more: false,
+      };
 
       vi.spyOn(client.rest, "get").mockResolvedValueOnce(restResponse);
 
       const result = await client.listCommunities();
 
-      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/servers");
-      expect(result[0]).toEqual({
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/communities");
+      expect(result.items[0]).toEqual({
         id: "s1",
         name: "Community 1",
         description: "Desc",
@@ -758,20 +754,22 @@ describe("ConstellClient", () => {
 
       const result = await client.createCommunity("New", "New desc");
 
-      expect(client.rest.post).toHaveBeenCalledWith("/api/v1/servers", { name: "New", description: "New desc" });
+      expect(client.rest.post).toHaveBeenCalledWith("/api/v1/communities", { name: "New", description: "New desc" });
       expect(result.name).toBe("New");
     });
 
     it("getChannels maps response", async () => {
-      const restResponse = [
-        { id: "ch1", community_id: "s1", name: "general", topic: "", type: 1, position: 0, created_at: 0, updated_at: 0 },
-      ];
+      const restResponse = {
+        channels: [
+          { id: "ch1", community_id: "s1", name: "general", topic: "", type: 1, position: 0, created_at: 0, updated_at: 0 },
+        ],
+      };
 
       vi.spyOn(client.rest, "get").mockResolvedValueOnce(restResponse);
 
       const result = await client.getChannels("s1");
 
-      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/servers/s1/channels");
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/communities/s1/channels");
       expect(result[0].name).toBe("general");
       expect(result[0].communityId).toBe("s1");
     });
@@ -788,7 +786,7 @@ describe("ConstellClient", () => {
 
       const result = await client.getMembers("s1", { limit: 10 });
 
-      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/servers/s1/members?limit=10");
+      expect(client.rest.get).toHaveBeenCalledWith("/api/v1/communities/s1/members?limit=10");
       expect(result.items[0].userId).toBe("u2");
     });
 
@@ -799,7 +797,7 @@ describe("ConstellClient", () => {
 
       const result = await client.addMember("s1", "u3");
 
-      expect(client.rest.post).toHaveBeenCalledWith("/api/v1/servers/s1/members", { user_id: "u3" });
+      expect(client.rest.post).toHaveBeenCalledWith("/api/v1/communities/s1/members", { user_id: "u3" });
       expect(result.userId).toBe("u3");
     });
 
