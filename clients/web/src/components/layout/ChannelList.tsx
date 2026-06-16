@@ -14,7 +14,6 @@ import type {
   Channel,
   SearchResults,
   UserSearchResult,
-  MessageSearchResult,
   DMMessageSearchResult,
 } from '@constell/sdk-js';
 
@@ -121,7 +120,6 @@ export function ChannelList() {
             results={searchResults}
             loading={searchLoading}
             channels={channels}
-            communities={communities}
             onSelect={() => {
               setFilter('');
               setSearchResults(null);
@@ -170,13 +168,11 @@ function SearchResultsList({
   results,
   loading,
   channels,
-  communities,
   onSelect,
 }: {
   results: SearchResults;
   loading: boolean;
   channels: Map<string, Channel[]>;
-  communities: Map<string, { id: string; name: string }>;
   onSelect: () => void;
 }) {
   const navigate = useNavigate();

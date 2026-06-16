@@ -6,7 +6,7 @@ import { useMessagesStore } from '@/stores/messagesStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { Attachment } from '@constell/sdk-js';
-import { Plus, Send, X, Image, FileText } from 'lucide-react';
+import { Plus, Send, X, FileText } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,7 +15,7 @@ import { Plus, Send, X, Image, FileText } from 'lucide-react';
 interface PendingFile {
   file: File;
   preview?: string; // object URL for images
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +124,7 @@ export function ChatInput() {
       if (channelId) {
         appendChannelMessage(channelId, {
           id: tempId,
+          seq: 0,
           channelId,
           authorId: user?.id ?? '',
           content: trimmed,
@@ -134,6 +135,7 @@ export function ChatInput() {
       } else if (peerId) {
         appendDMMessage(peerId, {
           id: tempId,
+          seq: 0,
           conversationId: '',
           senderId: user?.id ?? '',
           content: trimmed,

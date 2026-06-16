@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useResolvedUser } from '@/hooks/useResolvedUser';
 import type { ChannelMessage, DMMessage, Attachment } from '@constell/sdk-js';
 import { Clock, AlertCircle, Image, FileText } from 'lucide-react';

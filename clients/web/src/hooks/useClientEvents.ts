@@ -5,7 +5,7 @@ import { useMessagesStore } from '@/stores/messagesStore';
 import { useUsersStore } from '@/stores/usersStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useUIStore } from '@/stores/uiStore';
-import type { ChannelMessage, DMMessage } from '@constell/sdk-js';
+import { WSStatus, type ChannelMessage, type DMMessage } from '@constell/sdk-js';
 
 /**
  * Subscribes to SDK client events and routes them into Zustand stores.
@@ -44,8 +44,8 @@ export function useClientEvents() {
     const onUserOnline = ({ userId }: { userId: string }) => setOnline(userId);
     const onUserOffline = ({ userId }: { userId: string }) => setOffline(userId);
 
-    const onConnected = () => setWsStatus('CONNECTED');
-    const onDisconnected = () => setWsStatus('DISCONNECTED');
+    const onConnected = () => setWsStatus(WSStatus.Connected);
+    const onDisconnected = () => setWsStatus(WSStatus.Disconnected);
 
     client.on('channel_message', onChannelMessage);
     client.on('dm_received', onDMReceived);

@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from 'react';
 import { useConstellClient } from '@/hooks/useConstellClient';
 import { usePullPresence } from '@/hooks/usePullPresence';
 import { useUIStore } from '@/stores/uiStore';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import type { Member } from '@constell/sdk-js';
 
 // ---------------------------------------------------------------------------

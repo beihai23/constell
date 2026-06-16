@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useConstellClient } from '@/hooks/useConstellClient';
-import { useUIStore } from '@/stores/uiStore';
 import { useCommunitiesStore } from '@/stores/communitiesStore';
 import { useAuthStore } from '@/stores/authStore';
 import {
   Command,
   CommandInput,
   CommandList,
-  CommandEmpty,
   CommandGroup,
   CommandItem,
   CommandSeparator,
@@ -16,7 +14,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Hash, MessageSquare, User as UserIcon } from 'lucide-react';
+import { Hash, MessageSquare } from 'lucide-react';
 import type {
   SearchResults,
   UserSearchResult,
@@ -92,7 +90,6 @@ function RelevanceIndicator({ score }: { score: number }) {
 export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const navigate = useNavigate();
   const client = useConstellClient();
-  const setShowSearch = useUIStore((s) => s.setShowSearch);
   const channels = useCommunitiesStore((s) => s.channels);
   const communities = useCommunitiesStore((s) => s.communities);
   const currentUser = useAuthStore((s) => s.user);
@@ -193,25 +190,25 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const goToUser = useCallback(
     (userId: string) => {
       navigate(`/@me/${userId}`);
-      setShowSearch(false);
+      onOpenChange(false);
     },
-    [navigate, setShowSearch],
+    [navigate, onOpenChange],
   );
 
   const goToChannelMessage = useCallback(
     (communityId: string, channelId: string) => {
       navigate(`/${communityId}/${channelId}`);
-      setShowSearch(false);
+      onOpenChange(false);
     },
-    [navigate, setShowSearch],
+    [navigate, onOpenChange],
   );
 
   const goToDM = useCallback(
     (peerId: string) => {
       navigate(`/@me/${peerId}`);
-      setShowSearch(false);
+      onOpenChange(false);
     },
-    [navigate, setShowSearch],
+    [navigate, onOpenChange],
   );
 
   const hasResults =

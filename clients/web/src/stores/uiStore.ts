@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { WSStatus } from '@constell/sdk-js';
+import { WSStatus } from '@constell/sdk-js';
 
 type View = 'community' | 'dm';
 
@@ -21,7 +21,7 @@ export const useUIStore = create<UIState>((set) => ({
   view: 'community',
   showMemberList: false,
   onlineUsers: new Set(),
-  wsStatus: 'DISCONNECTED',
+  wsStatus: WSStatus.Disconnected,
 
   setView: (view) => set({ view }),
   setShowMemberList: (show) => set({ showMemberList: show }),
@@ -49,6 +49,6 @@ export const useUIStore = create<UIState>((set) => ({
       view: 'community',
       showMemberList: false,
       onlineUsers: new Set(),
-      wsStatus: 'DISCONNECTED',
+      wsStatus: WSStatus.Disconnected,
     }),
 }));

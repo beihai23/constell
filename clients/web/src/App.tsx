@@ -4,7 +4,6 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import LoginPage from '@/pages/LoginPage';
 import RegisterPage from '@/pages/RegisterPage';
 import MainPage from '@/pages/MainPage';
-import { DMList } from '@/components/dm/DMList';
 import { DMChat } from '@/components/chat/DMChat';
 import { ChannelView } from '@/components/chat/ChannelView';
 import { Toaster } from 'sonner';

@@ -2,9 +2,8 @@ import { useNavigate, useLocation } from 'react-router';
 import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useUIStore } from '@/stores/uiStore';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import type { DMConversation } from '@constell/sdk-js';
 
 /**
  * DM conversation list shown in the ChannelList sidebar when on /@me.

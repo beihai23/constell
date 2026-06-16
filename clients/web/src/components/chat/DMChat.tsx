@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router';
-import { useConstellClient } from '@/hooks/useConstellClient';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
@@ -12,7 +11,6 @@ import { ChatInput } from './ChatInput';
  */
 export function DMChat() {
   const { peerId } = useParams();
-  const client = useConstellClient();
   const clearUnread = useUnreadStore((s) => s.clearUnread);
 
   // Mark DM as read on mount
