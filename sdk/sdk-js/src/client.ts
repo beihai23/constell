@@ -563,7 +563,7 @@ export class ConstellClient {
 
   /** Upload a file via multipart form-data. */
   async uploadFile(
-    data: Uint8Array,
+    data: Uint8Array<ArrayBuffer>,
     filename: string,
     contentType: string,
   ): Promise<FileInfo> {
