@@ -36,11 +36,23 @@ type DMMessageSearchResult struct {
 	Relevance      float64
 }
 
+// CommunitySearchResult holds a row from community discovery search.
+type CommunitySearchResult struct {
+	ID          string
+	Name        string
+	IconURL     string
+	Description string
+	MemberCount int64
+	Joined      bool
+	Relevance   float64
+}
+
 // SearchRepository defines the database operations for search.
 type SearchRepository interface {
 	SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error)
 	SearchChannelMessages(ctx context.Context, query string, userID string, limit int) ([]MessageSearchResult, error)
 	SearchDMMessages(ctx context.Context, query string, userID string, limit int) ([]DMMessageSearchResult, error)
+	SearchCommunities(ctx context.Context, query string, userID string, limit int) ([]CommunitySearchResult, error)
 }
 
 // Repository implements SearchRepository backed by PostgreSQL.
@@ -136,6 +148,41 @@ func (r *Repository) SearchDMMessages(ctx context.Context, query string, userID 
 		var r DMMessageSearchResult
 		if err := rows.Scan(&r.ID, &r.ConversationID, &r.PeerID, &r.Content, &r.CreatedAt, &r.Relevance); err != nil {
 			return nil, fmt.Errorf("scan dm message result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// SearchCommunities searches public communities by name/description via the
+// generated search_vector. Only is_public=true communities are returned.
+// member_count is the member total for the community; joined reflects whether
+// userID is currently a member. Results are ordered by ts_rank relevance desc.
+func (r *Repository) SearchCommunities(ctx context.Context, query string, userID string, limit int) ([]CommunitySearchResult, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT c.id, c.name, COALESCE(c.icon_url, ''), COALESCE(c.description, ''),
+		       COUNT(cm.user_id)::bigint AS member_count,
+		       EXISTS(SELECT 1 FROM community_members cm2
+		              WHERE cm2.community_id = c.id AND cm2.user_id = $2) AS joined,
+		       ts_rank(c.search_vector, plainto_tsquery('simple', $1)) AS relevance
+		FROM communities c
+		LEFT JOIN community_members cm ON cm.community_id = c.id
+		WHERE c.is_public = true
+		  AND c.search_vector @@ plainto_tsquery('simple', $1)
+		GROUP BY c.id
+		ORDER BY relevance DESC
+		LIMIT $3
+	`, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search communities: %w", err)
+	}
+	defer rows.Close()
+
+	var results []CommunitySearchResult
+	for rows.Next() {
+		var r CommunitySearchResult
+		if err := rows.Scan(&r.ID, &r.Name, &r.IconURL, &r.Description, &r.MemberCount, &r.Joined, &r.Relevance); err != nil {
+			return nil, fmt.Errorf("scan community result: %w", err)
 		}
 		results = append(results, r)
 	}
