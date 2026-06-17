@@ -15,11 +15,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Hash, MessageSquare } from 'lucide-react';
+import { toast } from 'sonner';
 import type {
   SearchResults,
   UserSearchResult,
   MessageSearchResult,
   DMMessageSearchResult,
+  CommunitySearchResult,
 } from '@constell/sdk-js';
 
 // ---------------------------------------------------------------------------
@@ -211,11 +213,28 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     [navigate, onOpenChange],
   );
 
+  const goToCommunity = useCallback(
+    async (community: CommunitySearchResult) => {
+      if (!community.joined) {
+        try {
+          await client.joinCommunity(community.id);
+        } catch {
+          toast.error('Failed to join community');
+          return;
+        }
+      }
+      navigate(`/${community.id}`);
+      onOpenChange(false);
+    },
+    [navigate, onOpenChange, client],
+  );
+
   const hasResults =
     results &&
     (results.users.length > 0 ||
       results.messages.length > 0 ||
-      results.dmMessages.length > 0);
+      results.dmMessages.length > 0 ||
+      results.communities.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -248,6 +267,22 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
             </div>
           ) : results && hasResults ? (
             <CommandList className="max-h-80">
+              {/* Communities group */}
+              {results.communities.length > 0 && (
+                <CommandGroup heading="Communities">
+                  {results.communities.map((c) => (
+                    <CommunityResultItem
+                      key={c.id}
+                      community={c}
+                      onSelect={() => goToCommunity(c)}
+                    />
+                  ))}
+                </CommandGroup>
+              )}
+
+              {results.communities.length > 0 &&
+                results.users.length > 0 && <CommandSeparator />}
+
               {/* Users group */}
               {results.users.length > 0 && (
                 <CommandGroup heading="Users">
@@ -388,6 +423,34 @@ function DMMessageItem({
         <p className="text-xs text-[#585b70]">DM with {peerLabel}</p>
       </div>
       <RelevanceIndicator score={message.relevance} />
+    </CommandItem>
+  );
+}
+
+function CommunityResultItem({
+  community,
+  onSelect,
+}: {
+  community: CommunitySearchResult;
+  onSelect: () => void;
+}) {
+  return (
+    <CommandItem
+      onSelect={onSelect}
+      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[#cdd6f4] data-[selected=true]:bg-[#313244]"
+    >
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#313244]">
+        <Hash className="h-3 w-3 text-[#585b70]" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">{community.name}</p>
+        <p className="text-xs text-[#585b70]">{community.memberCount} members</p>
+      </div>
+      {community.joined ? (
+        <span className="shrink-0 text-xs text-[#585b70]">Joined</span>
+      ) : (
+        <span className="shrink-0 text-xs text-[#cba6f7]">Join</span>
+      )}
     </CommandItem>
   );
 }

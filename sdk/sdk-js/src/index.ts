@@ -82,6 +82,7 @@ export type {
   UserSearchResult,
   MessageSearchResult,
   DMMessageSearchResult,
+  CommunitySearchResult,
   SearchResults,
   // Notify
   UnreadDMConversation,
