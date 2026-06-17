@@ -13,6 +13,7 @@ enum SearchType {
   SEARCH_TYPE_USERS = 1;
   SEARCH_TYPE_MESSAGES = 2;
   SEARCH_TYPE_DM_MESSAGES = 3;
+  SEARCH_TYPE_COMMUNITIES = 4;
 }
 
 message SearchRequest {
@@ -25,6 +26,7 @@ message SearchResponse {
   repeated UserResult users = 1;
   repeated MessageResult messages = 2;
   repeated DMMessageResult dm_messages = 3;
+  repeated CommunityResult communities = 4;
 }
 
 message UserResult {
@@ -51,4 +53,14 @@ message DMMessageResult {
   string content = 4;
   int64 created_at = 5;
   double relevance = 6;
+}
+
+message CommunityResult {
+  string id           = 1;
+  string name         = 2;
+  string icon_url     = 3;
+  string description  = 4;
+  int64  member_count = 5;
+  bool   joined       = 6;
+  double relevance    = 7;
 }

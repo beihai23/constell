@@ -28,6 +28,7 @@ const (
 	SearchType_SEARCH_TYPE_USERS       SearchType = 1
 	SearchType_SEARCH_TYPE_MESSAGES    SearchType = 2
 	SearchType_SEARCH_TYPE_DM_MESSAGES SearchType = 3
+	SearchType_SEARCH_TYPE_COMMUNITIES SearchType = 4
 )
 
 // Enum value maps for SearchType.
@@ -37,12 +38,14 @@ var (
 		1: "SEARCH_TYPE_USERS",
 		2: "SEARCH_TYPE_MESSAGES",
 		3: "SEARCH_TYPE_DM_MESSAGES",
+		4: "SEARCH_TYPE_COMMUNITIES",
 	}
 	SearchType_value = map[string]int32{
 		"SEARCH_TYPE_UNSPECIFIED": 0,
 		"SEARCH_TYPE_USERS":       1,
 		"SEARCH_TYPE_MESSAGES":    2,
 		"SEARCH_TYPE_DM_MESSAGES": 3,
+		"SEARCH_TYPE_COMMUNITIES": 4,
 	}
 )
 
@@ -138,6 +141,7 @@ type SearchResponse struct {
 	Users         []*UserResult          `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
 	Messages      []*MessageResult       `protobuf:"bytes,2,rep,name=messages,proto3" json:"messages,omitempty"`
 	DmMessages    []*DMMessageResult     `protobuf:"bytes,3,rep,name=dm_messages,json=dmMessages,proto3" json:"dm_messages,omitempty"`
+	Communities   []*CommunityResult     `protobuf:"bytes,4,rep,name=communities,proto3" json:"communities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -189,6 +193,13 @@ func (x *SearchResponse) GetMessages() []*MessageResult {
 func (x *SearchResponse) GetDmMessages() []*DMMessageResult {
 	if x != nil {
 		return x.DmMessages
+	}
+	return nil
+}
+
+func (x *SearchResponse) GetCommunities() []*CommunityResult {
+	if x != nil {
+		return x.Communities
 	}
 	return nil
 }
@@ -437,6 +448,98 @@ func (x *DMMessageResult) GetRelevance() float64 {
 	return 0
 }
 
+type CommunityResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	IconUrl       string                 `protobuf:"bytes,3,opt,name=icon_url,json=iconUrl,proto3" json:"icon_url,omitempty"`
+	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	MemberCount   int64                  `protobuf:"varint,5,opt,name=member_count,json=memberCount,proto3" json:"member_count,omitempty"`
+	Joined        bool                   `protobuf:"varint,6,opt,name=joined,proto3" json:"joined,omitempty"`
+	Relevance     float64                `protobuf:"fixed64,7,opt,name=relevance,proto3" json:"relevance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommunityResult) Reset() {
+	*x = CommunityResult{}
+	mi := &file_search_v1_search_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommunityResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommunityResult) ProtoMessage() {}
+
+func (x *CommunityResult) ProtoReflect() protoreflect.Message {
+	mi := &file_search_v1_search_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommunityResult.ProtoReflect.Descriptor instead.
+func (*CommunityResult) Descriptor() ([]byte, []int) {
+	return file_search_v1_search_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CommunityResult) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CommunityResult) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CommunityResult) GetIconUrl() string {
+	if x != nil {
+		return x.IconUrl
+	}
+	return ""
+}
+
+func (x *CommunityResult) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CommunityResult) GetMemberCount() int64 {
+	if x != nil {
+		return x.MemberCount
+	}
+	return 0
+}
+
+func (x *CommunityResult) GetJoined() bool {
+	if x != nil {
+		return x.Joined
+	}
+	return false
+}
+
+func (x *CommunityResult) GetRelevance() float64 {
+	if x != nil {
+		return x.Relevance
+	}
+	return 0
+}
+
 var File_search_v1_search_proto protoreflect.FileDescriptor
 
 const file_search_v1_search_proto_rawDesc = "" +
@@ -445,12 +548,13 @@ const file_search_v1_search_proto_rawDesc = "" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12+\n" +
 	"\x05types\x18\x02 \x03(\x0e2\x15.search.v1.SearchTypeR\x05types\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xb0\x01\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xee\x01\n" +
 	"\x0eSearchResponse\x12+\n" +
 	"\x05users\x18\x01 \x03(\v2\x15.search.v1.UserResultR\x05users\x124\n" +
 	"\bmessages\x18\x02 \x03(\v2\x18.search.v1.MessageResultR\bmessages\x12;\n" +
 	"\vdm_messages\x18\x03 \x03(\v2\x1a.search.v1.DMMessageResultR\n" +
-	"dmMessages\"u\n" +
+	"dmMessages\x12<\n" +
+	"\vcommunities\x18\x04 \x03(\v2\x1a.search.v1.CommunityResultR\vcommunities\"u\n" +
 	"\n" +
 	"UserResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
@@ -475,13 +579,22 @@ const file_search_v1_search_proto_rawDesc = "" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x1c\n" +
-	"\trelevance\x18\x06 \x01(\x01R\trelevance*w\n" +
+	"\trelevance\x18\x06 \x01(\x01R\trelevance\"\xcb\x01\n" +
+	"\x0fCommunityResult\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
+	"\bicon_url\x18\x03 \x01(\tR\aiconUrl\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12!\n" +
+	"\fmember_count\x18\x05 \x01(\x03R\vmemberCount\x12\x16\n" +
+	"\x06joined\x18\x06 \x01(\bR\x06joined\x12\x1c\n" +
+	"\trelevance\x18\a \x01(\x01R\trelevance*\x94\x01\n" +
 	"\n" +
 	"SearchType\x12\x1b\n" +
 	"\x17SEARCH_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11SEARCH_TYPE_USERS\x10\x01\x12\x18\n" +
 	"\x14SEARCH_TYPE_MESSAGES\x10\x02\x12\x1b\n" +
-	"\x17SEARCH_TYPE_DM_MESSAGES\x10\x032N\n" +
+	"\x17SEARCH_TYPE_DM_MESSAGES\x10\x03\x12\x1b\n" +
+	"\x17SEARCH_TYPE_COMMUNITIES\x10\x042N\n" +
 	"\rSearchService\x12=\n" +
 	"\x06Search\x12\x18.search.v1.SearchRequest\x1a\x19.search.v1.SearchResponseB\xa4\x01\n" +
 	"\rcom.search.v1B\vSearchProtoP\x01ZAgithub.com/constell/constell/backend/pkg/proto/search/v1;searchv1\xa2\x02\x03SXX\xaa\x02\tSearch.V1\xca\x02\tSearch\\V1\xe2\x02\x15Search\\V1\\GPBMetadata\xea\x02\n" +
@@ -500,7 +613,7 @@ func file_search_v1_search_proto_rawDescGZIP() []byte {
 }
 
 var file_search_v1_search_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_search_v1_search_proto_goTypes = []any{
 	(SearchType)(0),         // 0: search.v1.SearchType
 	(*SearchRequest)(nil),   // 1: search.v1.SearchRequest
@@ -508,19 +621,21 @@ var file_search_v1_search_proto_goTypes = []any{
 	(*UserResult)(nil),      // 3: search.v1.UserResult
 	(*MessageResult)(nil),   // 4: search.v1.MessageResult
 	(*DMMessageResult)(nil), // 5: search.v1.DMMessageResult
+	(*CommunityResult)(nil), // 6: search.v1.CommunityResult
 }
 var file_search_v1_search_proto_depIdxs = []int32{
 	0, // 0: search.v1.SearchRequest.types:type_name -> search.v1.SearchType
 	3, // 1: search.v1.SearchResponse.users:type_name -> search.v1.UserResult
 	4, // 2: search.v1.SearchResponse.messages:type_name -> search.v1.MessageResult
 	5, // 3: search.v1.SearchResponse.dm_messages:type_name -> search.v1.DMMessageResult
-	1, // 4: search.v1.SearchService.Search:input_type -> search.v1.SearchRequest
-	2, // 5: search.v1.SearchService.Search:output_type -> search.v1.SearchResponse
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6, // 4: search.v1.SearchResponse.communities:type_name -> search.v1.CommunityResult
+	1, // 5: search.v1.SearchService.Search:input_type -> search.v1.SearchRequest
+	2, // 6: search.v1.SearchService.Search:output_type -> search.v1.SearchResponse
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_search_v1_search_proto_init() }
@@ -534,7 +649,7 @@ func file_search_v1_search_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_search_v1_search_proto_rawDesc), len(file_search_v1_search_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
