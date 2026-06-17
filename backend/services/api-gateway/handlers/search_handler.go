@@ -45,11 +45,22 @@ type dmMessageSearchResult struct {
 	CreatedAt      int64  `json:"created_at"`
 }
 
+// communitySearchResult is the JSON representation of a community discovery result.
+type communitySearchResult struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	IconURL     string `json:"icon_url"`
+	Description string `json:"description"`
+	MemberCount int64  `json:"member_count"`
+	Joined      bool   `json:"joined"`
+}
+
 // searchResponse is the JSON response for GET /api/v1/search.
 type searchResponse struct {
-	Users      []userSearchResult      `json:"users"`
-	Messages   []messageSearchResult   `json:"messages"`
-	DMMessages []dmMessageSearchResult `json:"dm_messages"`
+	Users       []userSearchResult      `json:"users"`
+	Messages    []messageSearchResult   `json:"messages"`
+	DMMessages  []dmMessageSearchResult `json:"dm_messages"`
+	Communities []communitySearchResult `json:"communities"`
 }
 
 // Search handles GET /api/v1/search.
@@ -107,9 +118,22 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	communities := make([]communitySearchResult, 0, len(msg.Communities))
+	for _, c := range msg.Communities {
+		communities = append(communities, communitySearchResult{
+			ID:          c.GetId(),
+			Name:        c.GetName(),
+			IconURL:     c.GetIconUrl(),
+			Description: c.GetDescription(),
+			MemberCount: c.GetMemberCount(),
+			Joined:      c.GetJoined(),
+		})
+	}
+
 	writeJSON(w, http.StatusOK, searchResponse{
-		Users:      users,
-		Messages:   messages,
-		DMMessages: dmMessages,
+		Users:       users,
+		Messages:    messages,
+		DMMessages:  dmMessages,
+		Communities: communities,
 	})
 }
