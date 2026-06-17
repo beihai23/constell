@@ -25,6 +25,13 @@ func contextWithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, userIDKey, userID)
 }
 
+// WithUserIDForTesting plants a caller userID into the context the same way the
+// auth interceptor does, so tests can drive handlers that call UserIDFromContext.
+// TEST-ONLY: do not call from production code — it bypasses JWT authentication.
+func WithUserIDForTesting(ctx context.Context, userID string) context.Context {
+	return contextWithUserID(ctx, userID)
+}
+
 // AuthInterceptorConfig holds optional configuration for the auth interceptor.
 type AuthInterceptorConfig struct {
 	// SkipPaths is a list of RPC procedure paths that should skip authentication.

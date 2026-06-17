@@ -57,11 +57,13 @@ func (s *SearchService) Search(
 	searchUsers := searchAll || containsType(types, pbv1.SearchType_SEARCH_TYPE_USERS)
 	searchMessages := searchAll || containsType(types, pbv1.SearchType_SEARCH_TYPE_MESSAGES)
 	searchDMs := searchAll || containsType(types, pbv1.SearchType_SEARCH_TYPE_DM_MESSAGES)
+	searchCommunities := searchAll || containsType(types, pbv1.SearchType_SEARCH_TYPE_COMMUNITIES)
 
 	// 5. Run searches in parallel
 	var userResults []UserSearchResult
 	var messageResults []MessageSearchResult
 	var dmResults []DMMessageSearchResult
+	var communityResults []CommunitySearchResult
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -89,6 +91,14 @@ func (s *SearchService) Search(
 		})
 	}
 
+	if searchCommunities {
+		g.Go(func() error {
+			var err error
+			communityResults, err = s.repo.SearchCommunities(gctx, msg.Query, callerID, limit)
+			return err
+		})
+	}
+
 	// 6. Wait for all goroutines
 	if err := g.Wait(); err != nil {
 		return nil, connect.NewError(connect.CodeInternal,
@@ -97,9 +107,10 @@ func (s *SearchService) Search(
 
 	// 7. Build response
 	resp := connect.NewResponse(&pbv1.SearchResponse{
-		Users:      toPBUserResults(userResults),
-		Messages:   toPBMessageResults(messageResults),
-		DmMessages: toPBDMMessageResults(dmResults),
+		Users:       toPBUserResults(userResults),
+		Messages:    toPBMessageResults(messageResults),
+		DmMessages:  toPBDMMessageResults(dmResults),
+		Communities: toPBCommunityResults(communityResults),
 	})
 	return resp, nil
 }
@@ -165,6 +176,26 @@ func toPBDMMessageResults(results []DMMessageSearchResult) []*pbv1.DMMessageResu
 			Content:        r.Content,
 			CreatedAt:      r.CreatedAt,
 			Relevance:      r.Relevance,
+		}
+	}
+	return out
+}
+
+// toPBCommunityResults converts internal community results to proto messages.
+func toPBCommunityResults(results []CommunitySearchResult) []*pbv1.CommunityResult {
+	if len(results) == 0 {
+		return nil
+	}
+	out := make([]*pbv1.CommunityResult, len(results))
+	for i, r := range results {
+		out[i] = &pbv1.CommunityResult{
+			Id:          r.ID,
+			Name:        r.Name,
+			IconUrl:     r.IconURL,
+			Description: r.Description,
+			MemberCount: r.MemberCount,
+			Joined:      r.Joined,
+			Relevance:   r.Relevance,
 		}
 	}
 	return out
