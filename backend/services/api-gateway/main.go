@@ -149,8 +149,8 @@ func main() {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	// Health endpoints
-	r.Get("/healthz", hc.HealthzHandler())
-	r.Get("/readyz", hc.ReadyHandler())
+	r.HandleFunc("/healthz", hc.HealthzHandler())
+	r.HandleFunc("/readyz", hc.ReadyHandler())
 
 	// Register all REST routes
 	registerRoutes(r, clients, cfg.JWTSecret, redisClient)
