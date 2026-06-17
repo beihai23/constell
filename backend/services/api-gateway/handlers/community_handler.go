@@ -371,6 +371,29 @@ func memberToResponse(m *communityv1.CommunityMember) memberResponse {
 	}
 }
 
+// JoinCommunity handles POST /api/v1/communities/:id/join.
+// The authenticated caller joins the community; no request body is required.
+func (h *CommunityHandler) JoinCommunity(w http.ResponseWriter, r *http.Request) {
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.JoinCommunityRequest{
+		CommunityId: communityID,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.JoinCommunity(r.Context(), cr)
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, memberToResponse(resp.Msg.Member))
+}
+
 // AddMember handles POST /api/v1/communities/:id/members.
 func (h *CommunityHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	communityID := chi.URLParam(r, "id")

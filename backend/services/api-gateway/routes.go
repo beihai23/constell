@@ -118,6 +118,9 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, r
 			r.Delete("/members/{uid}", communityHandler.RemoveMember)
 			r.Get("/members", communityHandler.ListMembers)
 
+			// Self-join (discovery).
+			r.Post("/join", communityHandler.JoinCommunity)
+
 			// Roles under a community.
 			r.Post("/roles", notImplemented())                      // CreateRole RPC added in Task 17
 			r.Post("/members/{uid}/roles/{rid}", notImplemented()) // AssignRole RPC added in Task 17
