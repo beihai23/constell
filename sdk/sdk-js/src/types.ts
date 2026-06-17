@@ -151,10 +151,20 @@ export interface DMMessageSearchResult {
   relevance: number;
 }
 
+export interface CommunitySearchResult {
+  id: string;
+  name: string;
+  iconUrl: string;
+  description: string;
+  memberCount: number;
+  joined: boolean;
+}
+
 export interface SearchResults {
   users: UserSearchResult[];
   messages: MessageSearchResult[];
   dmMessages: DMMessageSearchResult[];
+  communities: CommunitySearchResult[];
 }
 
 // ---- Notify (notify/v1) ---------------------------------------------------

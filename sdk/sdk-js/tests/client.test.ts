@@ -859,6 +859,7 @@ describe("ConstellClient", () => {
         users: [{ id: "u2", nickname: "Alice", avatar_url: "", relevance: 0.9 }],
         messages: [{ id: "m1", channel_id: "ch1", community_id: "s1", author_id: "u1", content: "hello", created_at: 0, relevance: 0.8 }],
         dm_messages: [{ id: "dm1", conversation_id: "conv1", peer_id: "u2", content: "hi", created_at: 0, relevance: 0.7 }],
+        communities: [{ id: "c1", name: "Gophers", icon_url: "u", description: "d", member_count: 5, joined: false }],
       };
 
       vi.spyOn(client.rest, "get").mockResolvedValueOnce(restResponse);
@@ -869,6 +870,15 @@ describe("ConstellClient", () => {
       expect(result.users[0].nickname).toBe("Alice");
       expect(result.messages[0].channelId).toBe("ch1");
       expect(result.dmMessages[0].peerId).toBe("u2");
+      expect(result.communities).toEqual([
+        { id: "c1", name: "Gophers", iconUrl: "u", description: "d", memberCount: 5, joined: false },
+      ]);
+    });
+
+    it("joinCommunity posts to the join endpoint", async () => {
+      vi.spyOn(client.rest, "post").mockResolvedValueOnce({} as never);
+      await client.joinCommunity("c1");
+      expect(client.rest.post).toHaveBeenCalledWith("/api/v1/communities/c1/join", undefined);
     });
 
     // --- Notify ---

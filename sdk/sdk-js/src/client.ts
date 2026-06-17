@@ -494,6 +494,11 @@ export class ConstellClient {
     return channels.map(mapChannel);
   }
 
+  /** Join a community by id. */
+  async joinCommunity(communityId: string): Promise<void> {
+    await this.rest.post(`/api/v1/communities/${communityId}/join`, undefined);
+  }
+
   /** Get members of a community (paginated). */
   async getMembers(communityId: string, opts?: PageOptions): Promise<PageResult<Member>> {
     const query = buildPageQuery(opts);
@@ -620,6 +625,14 @@ export class ConstellClient {
         content: m.content as string,
         createdAt: (m.created_at ?? m.createdAt) as number,
         relevance: m.relevance as number,
+      })),
+      communities: ((raw.communities ?? []) as Record<string, unknown>[]).map((c) => ({
+        id: c.id as string,
+        name: c.name as string,
+        iconUrl: (c.icon_url ?? c.iconUrl ?? "") as string,
+        description: (c.description ?? "") as string,
+        memberCount: (c.member_count ?? c.memberCount ?? 0) as number,
+        joined: (c.joined ?? false) as boolean,
       })),
     };
   }
