@@ -89,6 +89,20 @@ func (r *Repository) CreateCommunity(ctx context.Context, name, description, ico
 	return &s, nil
 }
 
+// IsCommunityPublic reports whether a community exists and is_public=true.
+// Returns (false, nil) for a private community and (false, err) when the
+// community does not exist — callers treat both as "not joinable".
+func (r *Repository) IsCommunityPublic(ctx context.Context, communityID string) (bool, error) {
+	var isPublic bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT is_public FROM communities WHERE id = $1
+	`, communityID).Scan(&isPublic)
+	if err != nil {
+		return false, err // pgx.ErrNoRows if not found
+	}
+	return isPublic, nil
+}
+
 // GetCommunity fetches a community by ID.
 func (r *Repository) GetCommunity(ctx context.Context, communityID string) (*CommunityRow, error) {
 	var s CommunityRow

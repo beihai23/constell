@@ -71,12 +71,20 @@ func mustInsertTestUser(t *testing.T, pool *pgxpool.Pool, email string) string {
 // already exist in users (FK communities.owner_id → users.id).
 func mustCreateTestCommunity(t *testing.T, pool *pgxpool.Pool, ownerID string) *CommunityRow {
 	t.Helper()
+	return mustCreateTestCommunityWithVisibility(t, pool, ownerID, true)
+}
+
+// mustCreateTestCommunityWithVisibility inserts a community row with an
+// explicit is_public value. Used to exercise the migration-014 visibility
+// column without going through a CreateCommunity API that doesn't expose it.
+func mustCreateTestCommunityWithVisibility(t *testing.T, pool *pgxpool.Pool, ownerID string, isPublic bool) *CommunityRow {
+	t.Helper()
 	var s CommunityRow
 	err := pool.QueryRow(t.Context(),
-		`INSERT INTO communities (name, owner_id)
-		 VALUES ($1, $2)
+		`INSERT INTO communities (name, owner_id, is_public)
+		 VALUES ($1, $2, $3)
 		 RETURNING id, name, description, icon_url, owner_id, created_at, updated_at`,
-		"test-community", ownerID,
+		"test-community", ownerID, isPublic,
 	).Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID,
 		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
@@ -164,5 +172,57 @@ func TestGetChannelMessagesSince(t *testing.T) {
 		if m.Seq == 0 {
 			t.Fatalf("returned message %s has zero Seq", m.ID)
 		}
+	}
+}
+
+// TestIsCommunityPublic exercises the visibility gate JoinCommunity relies on.
+// A public community reports (true, nil); a private one reports (false, nil);
+// a nonexistent id reports (false, err). Callers treat both non-true results
+// as "not self-joinable".
+func TestIsCommunityPublic(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := t.Context()
+
+	ownerID := mustInsertTestUser(t, pool, uniqueEmail("owner"))
+	pub := mustCreateTestCommunityWithVisibility(t, pool, ownerID, true)
+	priv := mustCreateTestCommunityWithVisibility(t, pool, ownerID, false)
+	repo := NewRepository(pool)
+
+	pubID := pub.ID
+	privID := priv.ID
+	t.Cleanup(func() {
+		c := context.Background()
+		_, _ = pool.Exec(c, `DELETE FROM communities WHERE id IN ($1, $2)`, pubID, privID)
+		_, _ = pool.Exec(c, `DELETE FROM users WHERE id = $1`, ownerID)
+	})
+
+	// Public community is joinable.
+	gotPublic, err := repo.IsCommunityPublic(ctx, pubID)
+	if err != nil {
+		t.Fatalf("IsCommunityPublic(public): unexpected error: %v", err)
+	}
+	if !gotPublic {
+		t.Fatalf("IsCommunityPublic(public) = false, want true")
+	}
+
+	// Private community is NOT joinable. Error must be nil so the caller can
+	// distinguish "private" from "doesn't exist" if it ever needs to; JoinCommunity
+	// treats both the same (CodeNotFound) to avoid leaking existence.
+	gotPrivate, err := repo.IsCommunityPublic(ctx, privID)
+	if err != nil {
+		t.Fatalf("IsCommunityPublic(private): unexpected error: %v", err)
+	}
+	if gotPrivate {
+		t.Fatalf("IsCommunityPublic(private) = true, want false")
+	}
+
+	// Nonexistent id returns (false, err) — pgx.ErrNoRows. Callers gate on
+	// `perr != nil || !public`, so this is covered.
+	gotMissing, err := repo.IsCommunityPublic(ctx, "00000000-0000-0000-0000-000000000000")
+	if err == nil {
+		t.Fatalf("IsCommunityPublic(missing): expected error, got nil")
+	}
+	if gotMissing {
+		t.Fatalf("IsCommunityPublic(missing) = true, want false")
 	}
 }

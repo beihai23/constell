@@ -392,6 +392,13 @@ func (s *CommunityService) JoinCommunity(
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("community not found"))
 	}
 
+	// Defense-in-depth: only public communities are joinable via self-join.
+	// Return NotFound for both private and nonexistent to avoid leaking existence.
+	public, perr := s.repo.IsCommunityPublic(ctx, communityID)
+	if perr != nil || !public {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("community not found"))
+	}
+
 	member, err := s.repo.AddMember(ctx, communityID, callerID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal,
