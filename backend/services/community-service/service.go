@@ -85,6 +85,14 @@ func (s *CommunityService) CreateCommunity(
 		slog.Warn("failed to assign @everyone role to owner", "error", err)
 	}
 
+	// Seed a default "general" text channel so the community is immediately
+	// usable (Discord-style). Without it a fresh community has nowhere to send,
+	// and the message input stays disabled until a channel is created.
+	if _, err := s.repo.CreateChannel(ctx, community.ID, "general", "", "text", 0); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to create default channel: %w", err))
+	}
+
 	s.communityCache.Set(ctx, community)
 
 	resp := connect.NewResponse(&pbv1.CreateCommunityResponse{
