@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import type { Channel } from '@constell/sdk-js';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -70,12 +71,11 @@ export function CreateCommunityDialog({
         );
         addCommunity(community);
 
-        // Populate the channel list for the new community. The backend does
-        // not seed a default channel, so this is usually empty — fetch it
-        // anyway so ChannelList has a real entry and future default-channel
-        // seeding flows through transparently.
+        // Populate the channel list. The backend seeds a default "general"
+        // channel on creation, so this is usually non-empty.
+        let channels: Channel[] = [];
         try {
-          const channels = await client.getChannels(community.id);
+          channels = await client.getChannels(community.id);
           setChannels(community.id, channels);
         } catch {
           // Non-fatal — ChannelList tolerates a missing entry.
@@ -83,7 +83,13 @@ export function CreateCommunityDialog({
 
         toast.success(`Created "${community.name}"`);
         handleClose();
-        navigate(`/${community.id}`);
+        // Land inside the first (default) channel so the user can message
+        // immediately, instead of the empty community shell.
+        navigate(
+          channels.length > 0
+            ? `/${community.id}/${channels[0].id}`
+            : `/${community.id}`,
+        );
       } catch {
         toast.error('Failed to create community');
       } finally {
