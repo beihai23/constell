@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { CreateCommunityDialog } from '@/components/communities/CreateCommunityDialog';
 import { cn } from '@/lib/utils';
 
 /**
@@ -25,6 +26,8 @@ export function CommunityRail() {
 
   const isDMView = location.pathname.startsWith('/@me');
   const currentCommunityId = getCommunityIdFromPath(location.pathname);
+
+  const [createOpen, setCreateOpen] = useState(false);
 
   // Compute per-community unread totals by cross-referencing
   // channels Map (communityId -> Channel[]) with channelUnreads (channelId -> count)
@@ -78,12 +81,10 @@ export function CommunityRail() {
         );
       })}
 
-      {/* Create community placeholder */}
+      {/* Create community */}
       <RailButton
         selected={false}
-        onClick={() => {
-          /* TODO: open create community dialog */
-        }}
+        onClick={() => setCreateOpen(true)}
         label="Add a Community"
       >
         <span className="text-xl text-[#cdd6f4]">+</span>
@@ -94,6 +95,10 @@ export function CommunityRail() {
 
       {/* Current user avatar + menu */}
       {user && <UserMenu />}
+
+      {/* Create-community dialog (controlled; rendered at end so it portals
+          above the rail without affecting flex layout) */}
+      <CreateCommunityDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ interface CommunitiesState {
   currentCommunityId: string | null;
   currentChannelId: string | null;
   setCommunities: (communities: Community[]) => void;
+  addCommunity: (community: Community) => void;
   setChannels: (communityId: string, channels: Channel[]) => void;
   selectCommunity: (id: string | null) => void;
   selectChannel: (id: string | null) => void;
@@ -20,6 +21,12 @@ export const useCommunitiesStore = create<CommunitiesState>((set) => ({
   currentChannelId: null,
   setCommunities: (list) =>
     set({ communities: new Map(list.map((c) => [c.id, c])) }),
+  addCommunity: (community) =>
+    set((state) => {
+      const communities = new Map(state.communities);
+      communities.set(community.id, community);
+      return { communities };
+    }),
   setChannels: (communityId, chs) =>
     set((state) => {
       const channels = new Map(state.channels);
