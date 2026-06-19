@@ -9,6 +9,7 @@ interface CommunitiesState {
   setCommunities: (communities: Community[]) => void;
   addCommunity: (community: Community) => void;
   setChannels: (communityId: string, channels: Channel[]) => void;
+  addChannel: (communityId: string, channel: Channel) => void;
   selectCommunity: (id: string | null) => void;
   selectChannel: (id: string | null) => void;
   reset: () => void;
@@ -31,6 +32,16 @@ export const useCommunitiesStore = create<CommunitiesState>((set) => ({
     set((state) => {
       const channels = new Map(state.channels);
       channels.set(communityId, chs);
+      return { channels };
+    }),
+  addChannel: (communityId, channel) =>
+    set((state) => {
+      const channels = new Map(state.channels);
+      const existing = channels.get(communityId) ?? [];
+      // Avoid duplicates if the channel was pushed via WS before the REST
+      // response arrives.
+      if (existing.some((c) => c.id === channel.id)) return {};
+      channels.set(communityId, [...existing, channel]);
       return { channels };
     }),
   selectCommunity: (id) => set({ currentCommunityId: id, currentChannelId: null }),

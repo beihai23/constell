@@ -10,11 +10,15 @@ import { useUIStore } from '@/stores/uiStore';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { Plus } from 'lucide-react';
+import { CreateChannelDialog } from '@/components/channels/CreateChannelDialog';
 import type {
   Channel,
   SearchResults,
   UserSearchResult,
   DMMessageSearchResult,
+  CommunitySearchResult,
 } from '@constell/sdk-js';
 
 /** Exposed so MainLayout can focus the input via ⌘K. */
@@ -45,6 +49,7 @@ export function ChannelList() {
   const [filter, setFilter] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Expose ref for ⌘K
@@ -113,8 +118,10 @@ export function ChannelList() {
         />
       </div>
 
-      {/* Scrollable content */}
-      <ScrollArea className="flex-1">
+      {/* Scrollable content. min-h-0 is required so the flex-1 child can
+          shrink below its content size and the ScrollArea scrolls internally
+          instead of growing the column past the viewport (body scroll). */}
+      <ScrollArea className="flex-1 min-h-0">
         {showSearch ? (
           <SearchResultsList
             results={searchResults}
@@ -133,6 +140,14 @@ export function ChannelList() {
               <span className="text-xs font-semibold tracking-wide text-[#585b70] uppercase">
                 Text Channels
               </span>
+              <button
+                onClick={() => setCreateChannelOpen(true)}
+                className="ml-auto flex h-4 w-4 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#313244] hover:text-[#cdd6f4]"
+                aria-label="Create channel"
+                title="Create channel"
+              >
+                <Plus className="h-3 w-3" />
+              </button>
             </div>
             {filteredChannels.map((channel) => (
               <ChannelItem
@@ -156,6 +171,14 @@ export function ChannelList() {
           </div>
         )}
       </ScrollArea>
+
+      {communityId && (
+        <CreateChannelDialog
+          open={createChannelOpen}
+          onOpenChange={setCreateChannelOpen}
+          communityId={communityId}
+        />
+      )}
     </div>
   );
 }
@@ -176,6 +199,7 @@ function SearchResultsList({
   onSelect: () => void;
 }) {
   const navigate = useNavigate();
+  const client = useConstellClient();
 
   // The searcher actively pulls presence for every user referenced in the
   // results (matched users, DM peers) so each row shows current status —
@@ -195,6 +219,7 @@ function SearchResultsList({
   }
 
   const hasAny =
+    results.communities.length > 0 ||
     results.users.length > 0 ||
     results.messages.length > 0 ||
     results.dmMessages.length > 0;
@@ -207,6 +232,33 @@ function SearchResultsList({
 
   return (
     <div className="px-2 space-y-2">
+      {/* Communities */}
+      {results.communities.length > 0 && (
+        <div>
+          <p className="mb-1 px-1 text-[10px] font-semibold tracking-wide text-[#585b70] uppercase">
+            Communities
+          </p>
+          {results.communities.map((community) => (
+            <CommunityResult
+              key={community.id}
+              community={community}
+              onClick={async () => {
+                if (!community.joined) {
+                  try {
+                    await client.joinCommunity(community.id);
+                  } catch {
+                    toast.error('Failed to join community');
+                    return;
+                  }
+                }
+                navigate(`/${community.id}`);
+                onSelect();
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Users */}
       {results.users.length > 0 && (
         <div>
@@ -295,6 +347,34 @@ function UserResult({ user, onClick }: { user: UserSearchResult; onClick: () => 
         />
       </div>
       <span className="truncate">{user.nickname}</span>
+    </button>
+  );
+}
+
+function CommunityResult({
+  community,
+  onClick,
+}: {
+  community: CommunitySearchResult;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm text-[#a6adc8] transition-colors hover:bg-[#1e1e2e] hover:text-[#cdd6f4]"
+    >
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#313244] text-xs font-semibold text-[#cdd6f4]">
+        {community.name.charAt(0).toUpperCase()}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[#cdd6f4]">{community.name}</p>
+        <p className="text-[10px] text-[#585b70]">{community.memberCount} members</p>
+      </div>
+      {community.joined ? (
+        <span className="shrink-0 text-[10px] text-[#585b70]">Joined</span>
+      ) : (
+        <span className="shrink-0 text-[10px] text-[#cba6f7]">Join</span>
+      )}
     </button>
   );
 }
