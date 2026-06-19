@@ -38,6 +38,10 @@ export function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isConnected = wsStatus === 'CONNECTED';
+  // A send target is required: a channel (channel view) or a peer (DM).
+  // Without one (e.g. a community with no channel selected) there's nowhere to
+  // deliver, so the input is disabled instead of silently no-oping on Enter.
+  const hasTarget = Boolean(channelId || peerId);
 
   // Auto-grow textarea
   useEffect(() => {
@@ -92,6 +96,9 @@ export function ChatInput() {
 
   // Send message
   const handleSend = useCallback(async () => {
+    // Nowhere to send (no channel selected, not a DM). The input is disabled in
+    // this state, but guard regardless so send can't silently no-op.
+    if (!channelId && !peerId) return;
     const trimmed = content.trim();
     if ((!trimmed && pendingFiles.length === 0) || sending) return;
 
@@ -196,7 +203,7 @@ export function ChatInput() {
         <button
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#45475a] hover:text-[#cdd6f4]"
           onClick={openFilePicker}
-          disabled={!isConnected}
+          disabled={!isConnected || !hasTarget}
           aria-label="Attach file"
         >
           <Plus className="h-5 w-5" />
@@ -218,13 +225,13 @@ export function ChatInput() {
           placeholder={
             !isConnected
               ? 'Connecting...'
-              : channelId
-                ? 'Message #channel'
-                : peerId
-                  ? 'Message user'
-                  : 'Type a message...'
+              : !hasTarget
+                ? 'Select a channel to message'
+                : channelId
+                  ? 'Message #channel'
+                  : 'Message user'
           }
-          disabled={!isConnected}
+          disabled={!isConnected || !hasTarget}
           rows={1}
           className="max-h-[120px] min-h-[24px] flex-1 resize-none bg-transparent text-sm text-[#cdd6f4] placeholder:text-[#585b70] focus:outline-none disabled:opacity-50"
         />
@@ -233,7 +240,7 @@ export function ChatInput() {
         <button
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#45475a] hover:text-[#cdd6f4] disabled:opacity-50"
           onClick={handleSend}
-          disabled={!isConnected || sending || (!content.trim() && pendingFiles.length === 0)}
+          disabled={!isConnected || !hasTarget || sending || (!content.trim() && pendingFiles.length === 0)}
           aria-label="Send message"
         >
           <Send className="h-4 w-4" />

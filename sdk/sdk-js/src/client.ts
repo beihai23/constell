@@ -494,6 +494,15 @@ export class ConstellClient {
     return channels.map(mapChannel);
   }
 
+  /** Create a text channel in a community. */
+  async createChannel(communityId: string, name: string): Promise<Channel> {
+    const raw = await this.rest.post<Record<string, unknown>>(
+      `/api/v1/communities/${communityId}/channels`,
+      { name },
+    );
+    return mapChannel(raw);
+  }
+
   /** Join a community by id. */
   async joinCommunity(communityId: string): Promise<void> {
     await this.rest.post(`/api/v1/communities/${communityId}/join`, undefined);
