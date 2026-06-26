@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -464,6 +465,52 @@ func (r *Repository) InsertChannelMessage(ctx context.Context, channelID, author
 	return &m, nil
 }
 
+// GetChannelMessageAuthor returns the author_id of a channel message, for the
+// DeleteMessage authorization check (MSG-DEL-2).
+func (r *Repository) GetChannelMessageAuthor(ctx context.Context, messageID string) (string, error) {
+	var authorID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT author_id FROM channel_messages WHERE id = $1`, messageID,
+	).Scan(&authorID)
+	if err != nil {
+		return "", fmt.Errorf("get channel message author: %w", err)
+	}
+	return authorID, nil
+}
+
+// DeleteChannelMessage removes a channel message row. Callers MUST verify
+// authorship first (see GetChannelMessageAuthor).
+func (r *Repository) DeleteChannelMessage(ctx context.Context, messageID string) error {
+	cmd, err := r.pool.Exec(ctx, `DELETE FROM channel_messages WHERE id = $1`, messageID)
+	if err != nil {
+		return fmt.Errorf("delete channel message: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return fmt.Errorf("message not found")
+	}
+	return nil
+}
+
+// UpdateChannelMessage edits content and bumps updated_at (created_at stays).
+// updated_at is forced to ≥ created_at + 1s so the "(edited)" marker
+// (derived client-side from updated_at > created_at) is reliable even for
+// sub-second edits. Callers MUST verify authorship first.
+func (r *Repository) UpdateChannelMessage(ctx context.Context, messageID, content string) (*ChannelMessageRow, error) {
+	var m ChannelMessageRow
+	err := r.pool.QueryRow(ctx,
+		`UPDATE channel_messages
+		 SET content = $2,
+		     updated_at = GREATEST(NOW(), created_at + INTERVAL '1 second')
+		 WHERE id = $1
+		 RETURNING id, channel_id, author_id, content, created_at, updated_at, seq`,
+		messageID, content,
+	).Scan(&m.ID, &m.ChannelID, &m.AuthorID, &m.Content, &m.CreatedAt, &m.UpdatedAt, &m.Seq)
+	if err != nil {
+		return nil, fmt.Errorf("update channel message: %w", err)
+	}
+	return &m, nil
+}
+
 // GetChannelMessages fetches messages with cursor pagination. seq is included
 // in the SELECT and Scan so initial history-load messages seed the client's
 // cursor; without it the backfill path would never be entered.
@@ -475,11 +522,18 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 
 	argIdx := 2
 	if cursor != "" {
-		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
-		args = append(args, cursor)
+		// Keyset-paginate by seq (monotonic, unique per insert) rather than
+		// created_at, which collides for messages sent in the same instant and
+		// makes the page boundary — and thus the displayed order — non-deterministic.
+		curSeq, err := strconv.ParseInt(cursor, 10, 64)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+		}
+		query += fmt.Sprintf(` AND seq < $%d`, argIdx)
+		args = append(args, curSeq)
 		argIdx++
 	}
-	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+	query += fmt.Sprintf(` ORDER BY seq DESC LIMIT $%d`, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.pool.Query(ctx, query, args...)
@@ -500,7 +554,11 @@ func (r *Repository) GetChannelMessages(ctx context.Context, channelID string, l
 
 	var nextCursor string
 	if len(messages) > limit {
-		nextCursor = messages[limit].CreatedAt.Format(time.RFC3339Nano)
+		// Cursor = oldest seq in the RETURNED page (messages[limit-1]); the
+		// limit+1 peek row only signals "more exists". Using the peek row as
+		// the cursor would drop it — an off-by-one that lost every (limit+1)th
+		// message on scroll-back.
+		nextCursor = strconv.FormatInt(messages[limit-1].Seq, 10)
 		messages = messages[:limit]
 	}
 	return messages, nextCursor, nil
@@ -586,9 +644,15 @@ type AttachmentRow struct {
 
 // GetAttachmentsByMessage retrieves attachments for a message.
 func (r *Repository) GetAttachmentsByMessage(ctx context.Context, messageType, messageID string) ([]*AttachmentRow, error) {
+	// JOIN file_metadata so filename/content_type/size come from the canonical
+	// file record (the attachment row stores only file_id; SendMessage inserts
+	// empty metadata). Without this, history attachments arrived metadata-less.
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, message_type, message_id, file_id, filename, content_type, size
-		 FROM attachments WHERE message_type = $1 AND message_id = $2`,
+		`SELECT a.id, a.message_type, a.message_id, a.file_id,
+		        COALESCE(f.filename, ''), COALESCE(f.content_type, ''), COALESCE(f.size, 0)
+		 FROM attachments a
+		 LEFT JOIN file_metadata f ON f.id = a.file_id
+		 WHERE a.message_type = $1 AND a.message_id = $2`,
 		messageType, messageID)
 	if err != nil {
 		return nil, fmt.Errorf("get attachments: %w", err)

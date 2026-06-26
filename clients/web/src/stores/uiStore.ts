@@ -8,12 +8,19 @@ interface UIState {
   showMemberList: boolean;
   onlineUsers: Set<string>;
   wsStatus: WSStatus;
+  /** Channel the user is currently viewing (null when not in a channel). Used
+   *  to suppress unread increments for messages the user is already seeing. */
+  activeChannelId: string | null;
+  /** DM peer the user is currently viewing (null otherwise). Same purpose. */
+  activePeerId: string | null;
   setView: (view: View) => void;
   setShowMemberList: (show: boolean) => void;
   toggleMemberList: () => void;
   setOnline: (userId: string) => void;
   setOffline: (userId: string) => void;
   setWsStatus: (status: WSStatus) => void;
+  setActiveChannel: (id: string | null) => void;
+  setActivePeer: (id: string | null) => void;
   reset: () => void;
 }
 
@@ -22,6 +29,8 @@ export const useUIStore = create<UIState>((set) => ({
   showMemberList: false,
   onlineUsers: new Set(),
   wsStatus: WSStatus.Disconnected,
+  activeChannelId: null,
+  activePeerId: null,
 
   setView: (view) => set({ view }),
   setShowMemberList: (show) => set({ showMemberList: show }),
@@ -43,6 +52,8 @@ export const useUIStore = create<UIState>((set) => ({
     }),
 
   setWsStatus: (wsStatus) => set({ wsStatus }),
+  setActiveChannel: (activeChannelId) => set({ activeChannelId }),
+  setActivePeer: (activePeerId) => set({ activePeerId }),
 
   reset: () =>
     set({
@@ -50,5 +61,7 @@ export const useUIStore = create<UIState>((set) => ({
       showMemberList: false,
       onlineUsers: new Set(),
       wsStatus: WSStatus.Disconnected,
+      activeChannelId: null,
+      activePeerId: null,
     }),
 }));

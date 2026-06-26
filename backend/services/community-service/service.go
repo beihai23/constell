@@ -635,7 +635,7 @@ func (s *CommunityService) SendMessage(
 	for _, m := range members {
 		memberIDs = append(memberIDs, m.UserID)
 	}
-	s.publishMessageCreated(ctx, msg.ID, channelID, ch.CommunityID, callerID, content, msg.CreatedAt.Unix(), memberIDs)
+	s.publishMessageCreated(ctx, msg.ID, channelID, ch.CommunityID, callerID, content, msg.CreatedAt.Unix(), msg.Seq, memberIDs)
 
 	// Fetch attachments for the response.
 	var pbAttachments []*commonv1.Attachment
@@ -657,8 +657,88 @@ func (s *CommunityService) SendMessage(
 		Message: &pbv1.ChannelMessage{
 			Id: msg.ID, ChannelId: msg.ChannelID, AuthorId: msg.AuthorID,
 			Content: msg.Content, CreatedAt: msg.CreatedAt.Unix(),
-			UpdatedAt: msg.UpdatedAt.Unix(),
+			UpdatedAt: msg.UpdatedAt.Unix(), Seq: msg.Seq,
 			Attachments: pbAttachments,
+		},
+	})
+	return resp, nil
+}
+
+// DeleteMessage deletes a channel message. Only the message author may delete
+// it (MSG-DEL-2). The DB row is removed so subsequent history fetches exclude
+// it; other already-connected clients keep a stale local copy until their next
+// history reload (real-time delete propagation is a separate AC).
+func (s *CommunityService) DeleteMessage(
+	ctx context.Context,
+	req *connect.Request[pbv1.DeleteMessageRequest],
+) (*connect.Response[pbv1.DeleteMessageResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	messageID := strings.TrimSpace(req.Msg.MessageId)
+	if messageID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("message_id is required"))
+	}
+
+	authorID, err := s.repo.GetChannelMessageAuthor(ctx, messageID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("message not found"))
+	}
+	if authorID != callerID {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("can only delete your own messages"))
+	}
+
+	if err := s.repo.DeleteChannelMessage(ctx, messageID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to delete message: %w", err))
+	}
+	return connect.NewResponse(&pbv1.DeleteMessageResponse{}), nil
+}
+
+// EditMessage updates a channel message's content. Only the author may edit
+// (MSG-EDIT-1). updated_at is bumped (created_at unchanged) so clients can
+// render an "(edited)" marker from updated_at > created_at.
+func (s *CommunityService) EditMessage(
+	ctx context.Context,
+	req *connect.Request[pbv1.EditMessageRequest],
+) (*connect.Response[pbv1.EditMessageResponse], error) {
+	callerID := middleware.UserIDFromContext(ctx)
+	if callerID == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated,
+			fmt.Errorf("not authenticated"))
+	}
+	messageID := strings.TrimSpace(req.Msg.MessageId)
+	content := strings.TrimSpace(req.Msg.Content)
+	if messageID == "" || content == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("message_id and content are required"))
+	}
+
+	authorID, err := s.repo.GetChannelMessageAuthor(ctx, messageID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("message not found"))
+	}
+	if authorID != callerID {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("can only edit your own messages"))
+	}
+
+	updated, err := s.repo.UpdateChannelMessage(ctx, messageID, content)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to edit message: %w", err))
+	}
+	// Attachments are unchanged by an edit; the client merges this into its
+	// existing copy (content + updated_at) so they aren't reloaded here.
+	resp := connect.NewResponse(&pbv1.EditMessageResponse{
+		Message: &pbv1.ChannelMessage{
+			Id: updated.ID, ChannelId: updated.ChannelID, AuthorId: updated.AuthorID,
+			Content: updated.Content, CreatedAt: updated.CreatedAt.Unix(),
+			UpdatedAt: updated.UpdatedAt.Unix(), Seq: updated.Seq,
 		},
 	})
 	return resp, nil
@@ -719,11 +799,7 @@ func (s *CommunityService) GetMessages(
 				fmt.Errorf("failed to get messages since: %w", err))
 		}
 		for _, m := range sinceMsgs {
-			pbMessages = append(pbMessages, &pbv1.ChannelMessage{
-				Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
-				Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
-				UpdatedAt: m.UpdatedAt.Unix(), Seq: m.Seq,
-			})
+			pbMessages = append(pbMessages, s.channelMessageWithAttachments(ctx, m))
 		}
 	} else {
 		// History-scroll path: cursor pagination, descending.
@@ -734,11 +810,7 @@ func (s *CommunityService) GetMessages(
 		}
 		nextCursor = c
 		for _, m := range messages {
-			pbMessages = append(pbMessages, &pbv1.ChannelMessage{
-				Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
-				Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
-				UpdatedAt: m.UpdatedAt.Unix(), Seq: m.Seq,
-			})
+			pbMessages = append(pbMessages, s.channelMessageWithAttachments(ctx, m))
 		}
 	}
 
@@ -750,6 +822,32 @@ func (s *CommunityService) GetMessages(
 		},
 	})
 	return resp, nil
+}
+
+// channelMessageWithAttachments builds a ChannelMessage proto and attaches its
+// stored attachments (GetMessages otherwise drops them, so history/backfill
+// arrived attachment-less — FILE-VIEW-1).
+func (s *CommunityService) channelMessageWithAttachments(ctx context.Context, m *ChannelMessageRow) *pbv1.ChannelMessage {
+	pb := &pbv1.ChannelMessage{
+		Id: m.ID, ChannelId: m.ChannelID, AuthorId: m.AuthorID,
+		Content: m.Content, CreatedAt: m.CreatedAt.Unix(),
+		UpdatedAt: m.UpdatedAt.Unix(), Seq: m.Seq,
+	}
+	dbAttachments, err := s.repo.GetAttachmentsByMessage(ctx, "channel", m.ID)
+	if err != nil {
+		slog.Warn("failed to fetch attachments for message", "message_id", m.ID, "error", err)
+		return pb
+	}
+	for _, a := range dbAttachments {
+		pb.Attachments = append(pb.Attachments, &commonv1.Attachment{
+			Id:          a.ID,
+			FileId:      a.FileID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+		})
+	}
+	return pb
 }
 
 // checkPermission verifies the caller has the required permission.
@@ -801,7 +899,7 @@ func toPBChannel(c *ChannelRow) *pbv1.Channel {
 }
 
 // publishMessageCreated publishes a constell.message.created NATS event.
-func (s *CommunityService) publishMessageCreated(ctx context.Context, messageID, channelID, communityID, senderID, content string, createdAt int64, memberIDs []string) {
+func (s *CommunityService) publishMessageCreated(ctx context.Context, messageID, channelID, communityID, senderID, content string, createdAt, seq int64, memberIDs []string) {
 	if s.natsConn == nil {
 		return
 	}
@@ -813,6 +911,7 @@ func (s *CommunityService) publishMessageCreated(ctx context.Context, messageID,
 		"content":      content,
 		"member_ids":   memberIDs,
 		"created_at":   createdAt,
+		"seq":          seq,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

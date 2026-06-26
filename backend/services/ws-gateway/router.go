@@ -9,12 +9,12 @@ import (
 
 // UserSvcClient defines the interface for calling User Service RPCs.
 type UserSvcClient interface {
-	SendDM(ctx context.Context, senderID, receiverID, content string) (messageID string, createdAt string, err error)
+	SendDM(ctx context.Context, senderID, receiverID, content string) (messageID string, seq int64, err error)
 }
 
 // CommunitySvcClient defines the interface for calling Community Service RPCs.
 type CommunitySvcClient interface {
-	SendMessage(ctx context.Context, senderID, channelID, content string) (messageID string, createdAt string, err error)
+	SendMessage(ctx context.Context, senderID, channelID, content string) (messageID string, seq int64, err error)
 }
 
 // Router translates gateway-layer client messages into Connect-RPC calls.
@@ -61,16 +61,20 @@ func (r *Router) handleSendDM(ctx context.Context, userID string, msg *gatewayv1
 		return nil, fmt.Errorf("content is required")
 	}
 
-	_, _, err := r.userClient.SendDM(ctx, userID, req.ReceiverId, req.Content)
+	messageID, seq, err := r.userClient.SendDM(ctx, userID, req.ReceiverId, req.Content)
 	if err != nil {
 		return nil, fmt.Errorf("user service SendDM: %w", err)
 	}
 
 	_ = req.FileIds // file_ids passed via API Gateway REST endpoint
 
+	// Echo the created message's id + seq so the sender can reconcile its
+	// optimistic local copy (replace the temp id, pick up the real seq).
 	return &gatewayv1.ServerEvent{
-		Type:      gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,
-		RequestId: msg.RequestId,
+		Type:         gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,
+		RequestId:    msg.RequestId,
+		AckMessageId: messageID,
+		AckSeq:       seq,
 	}, nil
 }
 
@@ -86,16 +90,20 @@ func (r *Router) handleSendChannelMessage(ctx context.Context, userID string, ms
 		return nil, fmt.Errorf("content is required")
 	}
 
-	_, _, err := r.communityClient.SendMessage(ctx, userID, req.ChannelId, req.Content)
+	messageID, seq, err := r.communityClient.SendMessage(ctx, userID, req.ChannelId, req.Content)
 	if err != nil {
 		return nil, fmt.Errorf("community service SendMessage: %w", err)
 	}
 
 	_ = req.FileIds // file_ids passed via API Gateway REST endpoint
 
+	// Echo the created message's id + seq so the sender can reconcile its
+	// optimistic local copy (replace the temp id, pick up the real seq).
 	return &gatewayv1.ServerEvent{
-		Type:      gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,
-		RequestId: msg.RequestId,
+		Type:         gatewayv1.ServerEventType_SERVER_EVENT_TYPE_ACK,
+		RequestId:    msg.RequestId,
+		AckMessageId: messageID,
+		AckSeq:       seq,
 	}, nil
 }
 

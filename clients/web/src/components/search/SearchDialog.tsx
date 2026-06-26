@@ -213,15 +213,24 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     [navigate, onOpenChange],
   );
 
-  const goToCommunity = useCallback(
+  // Row click only opens a community the user already belongs to — it must NOT
+  // silently join. Joining is a deliberate action on the explicit Join button.
+  const openCommunity = useCallback(
+    (community: CommunitySearchResult) => {
+      if (!community.joined) return;
+      navigate(`/${community.id}`);
+      onOpenChange(false);
+    },
+    [navigate, onOpenChange],
+  );
+
+  const joinAndOpen = useCallback(
     async (community: CommunitySearchResult) => {
-      if (!community.joined) {
-        try {
-          await client.joinCommunity(community.id);
-        } catch {
-          toast.error('Failed to join community');
-          return;
-        }
+      try {
+        await client.joinCommunity(community.id);
+      } catch {
+        toast.error('Failed to join community');
+        return;
       }
       navigate(`/${community.id}`);
       onOpenChange(false);
@@ -274,7 +283,8 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                     <CommunityResultItem
                       key={c.id}
                       community={c}
-                      onSelect={() => goToCommunity(c)}
+                      onOpen={() => openCommunity(c)}
+                      onJoin={() => joinAndOpen(c)}
                     />
                   ))}
                 </CommandGroup>
@@ -429,14 +439,16 @@ function DMMessageItem({
 
 function CommunityResultItem({
   community,
-  onSelect,
+  onOpen,
+  onJoin,
 }: {
   community: CommunitySearchResult;
-  onSelect: () => void;
+  onOpen: () => void;
+  onJoin: () => void;
 }) {
   return (
     <CommandItem
-      onSelect={onSelect}
+      onSelect={onOpen}
       className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[#cdd6f4] data-[selected=true]:bg-[#313244]"
     >
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#313244]">
@@ -449,7 +461,20 @@ function CommunityResultItem({
       {community.joined ? (
         <span className="shrink-0 text-xs text-[#585b70]">Joined</span>
       ) : (
-        <span className="shrink-0 text-xs text-[#cba6f7]">Join</span>
+        // Real button with stopped propagation so clicking it joins without
+        // also firing the row's onSelect (which no-ops for non-members anyway).
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onJoin();
+          }}
+          className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-xs font-medium text-[#cba6f7] hover:bg-[#313244]"
+        >
+          Join
+        </button>
       )}
     </CommandItem>
   );

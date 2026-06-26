@@ -2009,6 +2009,182 @@ func (x *GetMessagesResponse) GetPagination() *v1.PaginationResponse {
 	return nil
 }
 
+type DeleteMessageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MessageId     string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMessageRequest) Reset() {
+	*x = DeleteMessageRequest{}
+	mi := &file_community_v1_community_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMessageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMessageRequest) ProtoMessage() {}
+
+func (x *DeleteMessageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_community_v1_community_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMessageRequest.ProtoReflect.Descriptor instead.
+func (*DeleteMessageRequest) Descriptor() ([]byte, []int) {
+	return file_community_v1_community_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *DeleteMessageRequest) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+type DeleteMessageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMessageResponse) Reset() {
+	*x = DeleteMessageResponse{}
+	mi := &file_community_v1_community_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMessageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMessageResponse) ProtoMessage() {}
+
+func (x *DeleteMessageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_community_v1_community_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMessageResponse.ProtoReflect.Descriptor instead.
+func (*DeleteMessageResponse) Descriptor() ([]byte, []int) {
+	return file_community_v1_community_proto_rawDescGZIP(), []int{37}
+}
+
+type EditMessageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MessageId     string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EditMessageRequest) Reset() {
+	*x = EditMessageRequest{}
+	mi := &file_community_v1_community_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EditMessageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EditMessageRequest) ProtoMessage() {}
+
+func (x *EditMessageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_community_v1_community_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EditMessageRequest.ProtoReflect.Descriptor instead.
+func (*EditMessageRequest) Descriptor() ([]byte, []int) {
+	return file_community_v1_community_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *EditMessageRequest) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+func (x *EditMessageRequest) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type EditMessageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       *ChannelMessage        `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EditMessageResponse) Reset() {
+	*x = EditMessageResponse{}
+	mi := &file_community_v1_community_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EditMessageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EditMessageResponse) ProtoMessage() {}
+
+func (x *EditMessageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_community_v1_community_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EditMessageResponse.ProtoReflect.Descriptor instead.
+func (*EditMessageResponse) Descriptor() ([]byte, []int) {
+	return file_community_v1_community_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *EditMessageResponse) GetMessage() *ChannelMessage {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
 var File_community_v1_community_proto protoreflect.FileDescriptor
 
 const file_community_v1_community_proto_rawDesc = "" +
@@ -2157,11 +2333,21 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"\bmessages\x18\x01 \x03(\v2\x1c.community.v1.ChannelMessageR\bmessages\x12=\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x1d.common.v1.PaginationResponseR\n" +
-	"pagination*a\n" +
+	"pagination\"5\n" +
+	"\x14DeleteMessageRequest\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x01 \x01(\tR\tmessageId\"\x17\n" +
+	"\x15DeleteMessageResponse\"M\n" +
+	"\x12EditMessageRequest\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"M\n" +
+	"\x13EditMessageResponse\x126\n" +
+	"\amessage\x18\x01 \x01(\v2\x1c.community.v1.ChannelMessageR\amessage*a\n" +
 	"\vChannelType\x12\x1c\n" +
 	"\x18CHANNEL_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11CHANNEL_TYPE_TEXT\x10\x01\x12\x1d\n" +
-	"\x19CHANNEL_TYPE_ANNOUNCEMENT\x10\x022\xa3\v\n" +
+	"\x19CHANNEL_TYPE_ANNOUNCEMENT\x10\x022\xd1\f\n" +
 	"\x10CommunityService\x12^\n" +
 	"\x0fCreateCommunity\x12$.community.v1.CreateCommunityRequest\x1a%.community.v1.CreateCommunityResponse\x12U\n" +
 	"\fGetCommunity\x12!.community.v1.GetCommunityRequest\x1a\".community.v1.GetCommunityResponse\x12^\n" +
@@ -2180,7 +2366,9 @@ const file_community_v1_community_proto_rawDesc = "" +
 	"KickMember\x12\x1f.community.v1.KickMemberRequest\x1a .community.v1.KickMemberResponse\x12R\n" +
 	"\vListMembers\x12 .community.v1.ListMembersRequest\x1a!.community.v1.ListMembersResponse\x12R\n" +
 	"\vSendMessage\x12 .community.v1.SendMessageRequest\x1a!.community.v1.SendMessageResponse\x12R\n" +
-	"\vGetMessages\x12 .community.v1.GetMessagesRequest\x1a!.community.v1.GetMessagesResponseB\xbc\x01\n" +
+	"\vGetMessages\x12 .community.v1.GetMessagesRequest\x1a!.community.v1.GetMessagesResponse\x12X\n" +
+	"\rDeleteMessage\x12\".community.v1.DeleteMessageRequest\x1a#.community.v1.DeleteMessageResponse\x12R\n" +
+	"\vEditMessage\x12 .community.v1.EditMessageRequest\x1a!.community.v1.EditMessageResponseB\xbc\x01\n" +
 	"\x10com.community.v1B\x0eCommunityProtoP\x01ZGgithub.com/constell/constell/backend/pkg/proto/community/v1;communityv1\xa2\x02\x03CXX\xaa\x02\fCommunity.V1\xca\x02\fCommunity\\V1\xe2\x02\x18Community\\V1\\GPBMetadata\xea\x02\rCommunity::V1b\x06proto3"
 
 var (
@@ -2196,7 +2384,7 @@ func file_community_v1_community_proto_rawDescGZIP() []byte {
 }
 
 var file_community_v1_community_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_community_v1_community_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_community_v1_community_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_community_v1_community_proto_goTypes = []any{
 	(ChannelType)(0),                // 0: community.v1.ChannelType
 	(*Community)(nil),               // 1: community.v1.Community
@@ -2235,72 +2423,81 @@ var file_community_v1_community_proto_goTypes = []any{
 	(*SendMessageResponse)(nil),     // 34: community.v1.SendMessageResponse
 	(*GetMessagesRequest)(nil),      // 35: community.v1.GetMessagesRequest
 	(*GetMessagesResponse)(nil),     // 36: community.v1.GetMessagesResponse
-	(*v1.PaginationRequest)(nil),    // 37: common.v1.PaginationRequest
-	(*v1.PaginationResponse)(nil),   // 38: common.v1.PaginationResponse
-	(*v1.Attachment)(nil),           // 39: common.v1.Attachment
+	(*DeleteMessageRequest)(nil),    // 37: community.v1.DeleteMessageRequest
+	(*DeleteMessageResponse)(nil),   // 38: community.v1.DeleteMessageResponse
+	(*EditMessageRequest)(nil),      // 39: community.v1.EditMessageRequest
+	(*EditMessageResponse)(nil),     // 40: community.v1.EditMessageResponse
+	(*v1.PaginationRequest)(nil),    // 41: common.v1.PaginationRequest
+	(*v1.PaginationResponse)(nil),   // 42: common.v1.PaginationResponse
+	(*v1.Attachment)(nil),           // 43: common.v1.Attachment
 }
 var file_community_v1_community_proto_depIdxs = []int32{
 	1,  // 0: community.v1.CreateCommunityResponse.community:type_name -> community.v1.Community
 	1,  // 1: community.v1.GetCommunityResponse.community:type_name -> community.v1.Community
 	1,  // 2: community.v1.UpdateCommunityResponse.community:type_name -> community.v1.Community
-	37, // 3: community.v1.ListCommunitiesRequest.pagination:type_name -> common.v1.PaginationRequest
+	41, // 3: community.v1.ListCommunitiesRequest.pagination:type_name -> common.v1.PaginationRequest
 	1,  // 4: community.v1.ListCommunitiesResponse.communities:type_name -> community.v1.Community
-	38, // 5: community.v1.ListCommunitiesResponse.pagination:type_name -> common.v1.PaginationResponse
+	42, // 5: community.v1.ListCommunitiesResponse.pagination:type_name -> common.v1.PaginationResponse
 	0,  // 6: community.v1.Channel.type:type_name -> community.v1.ChannelType
 	0,  // 7: community.v1.CreateChannelRequest.type:type_name -> community.v1.ChannelType
 	12, // 8: community.v1.CreateChannelResponse.channel:type_name -> community.v1.Channel
 	12, // 9: community.v1.GetChannelResponse.channel:type_name -> community.v1.Channel
 	0,  // 10: community.v1.UpdateChannelRequest.type:type_name -> community.v1.ChannelType
 	12, // 11: community.v1.UpdateChannelResponse.channel:type_name -> community.v1.Channel
-	37, // 12: community.v1.ListChannelsRequest.pagination:type_name -> common.v1.PaginationRequest
+	41, // 12: community.v1.ListChannelsRequest.pagination:type_name -> common.v1.PaginationRequest
 	12, // 13: community.v1.ListChannelsResponse.channels:type_name -> community.v1.Channel
-	38, // 14: community.v1.ListChannelsResponse.pagination:type_name -> common.v1.PaginationResponse
+	42, // 14: community.v1.ListChannelsResponse.pagination:type_name -> common.v1.PaginationResponse
 	23, // 15: community.v1.JoinCommunityResponse.member:type_name -> community.v1.CommunityMember
-	37, // 16: community.v1.ListMembersRequest.pagination:type_name -> common.v1.PaginationRequest
+	41, // 16: community.v1.ListMembersRequest.pagination:type_name -> common.v1.PaginationRequest
 	23, // 17: community.v1.ListMembersResponse.members:type_name -> community.v1.CommunityMember
-	38, // 18: community.v1.ListMembersResponse.pagination:type_name -> common.v1.PaginationResponse
-	39, // 19: community.v1.ChannelMessage.attachments:type_name -> common.v1.Attachment
+	42, // 18: community.v1.ListMembersResponse.pagination:type_name -> common.v1.PaginationResponse
+	43, // 19: community.v1.ChannelMessage.attachments:type_name -> common.v1.Attachment
 	32, // 20: community.v1.SendMessageResponse.message:type_name -> community.v1.ChannelMessage
-	37, // 21: community.v1.GetMessagesRequest.pagination:type_name -> common.v1.PaginationRequest
+	41, // 21: community.v1.GetMessagesRequest.pagination:type_name -> common.v1.PaginationRequest
 	32, // 22: community.v1.GetMessagesResponse.messages:type_name -> community.v1.ChannelMessage
-	38, // 23: community.v1.GetMessagesResponse.pagination:type_name -> common.v1.PaginationResponse
-	2,  // 24: community.v1.CommunityService.CreateCommunity:input_type -> community.v1.CreateCommunityRequest
-	4,  // 25: community.v1.CommunityService.GetCommunity:input_type -> community.v1.GetCommunityRequest
-	6,  // 26: community.v1.CommunityService.UpdateCommunity:input_type -> community.v1.UpdateCommunityRequest
-	8,  // 27: community.v1.CommunityService.DeleteCommunity:input_type -> community.v1.DeleteCommunityRequest
-	10, // 28: community.v1.CommunityService.ListCommunities:input_type -> community.v1.ListCommunitiesRequest
-	13, // 29: community.v1.CommunityService.CreateChannel:input_type -> community.v1.CreateChannelRequest
-	15, // 30: community.v1.CommunityService.GetChannel:input_type -> community.v1.GetChannelRequest
-	17, // 31: community.v1.CommunityService.UpdateChannel:input_type -> community.v1.UpdateChannelRequest
-	19, // 32: community.v1.CommunityService.DeleteChannel:input_type -> community.v1.DeleteChannelRequest
-	21, // 33: community.v1.CommunityService.ListChannels:input_type -> community.v1.ListChannelsRequest
-	24, // 34: community.v1.CommunityService.JoinCommunity:input_type -> community.v1.JoinCommunityRequest
-	26, // 35: community.v1.CommunityService.LeaveCommunity:input_type -> community.v1.LeaveCommunityRequest
-	28, // 36: community.v1.CommunityService.KickMember:input_type -> community.v1.KickMemberRequest
-	30, // 37: community.v1.CommunityService.ListMembers:input_type -> community.v1.ListMembersRequest
-	33, // 38: community.v1.CommunityService.SendMessage:input_type -> community.v1.SendMessageRequest
-	35, // 39: community.v1.CommunityService.GetMessages:input_type -> community.v1.GetMessagesRequest
-	3,  // 40: community.v1.CommunityService.CreateCommunity:output_type -> community.v1.CreateCommunityResponse
-	5,  // 41: community.v1.CommunityService.GetCommunity:output_type -> community.v1.GetCommunityResponse
-	7,  // 42: community.v1.CommunityService.UpdateCommunity:output_type -> community.v1.UpdateCommunityResponse
-	9,  // 43: community.v1.CommunityService.DeleteCommunity:output_type -> community.v1.DeleteCommunityResponse
-	11, // 44: community.v1.CommunityService.ListCommunities:output_type -> community.v1.ListCommunitiesResponse
-	14, // 45: community.v1.CommunityService.CreateChannel:output_type -> community.v1.CreateChannelResponse
-	16, // 46: community.v1.CommunityService.GetChannel:output_type -> community.v1.GetChannelResponse
-	18, // 47: community.v1.CommunityService.UpdateChannel:output_type -> community.v1.UpdateChannelResponse
-	20, // 48: community.v1.CommunityService.DeleteChannel:output_type -> community.v1.DeleteChannelResponse
-	22, // 49: community.v1.CommunityService.ListChannels:output_type -> community.v1.ListChannelsResponse
-	25, // 50: community.v1.CommunityService.JoinCommunity:output_type -> community.v1.JoinCommunityResponse
-	27, // 51: community.v1.CommunityService.LeaveCommunity:output_type -> community.v1.LeaveCommunityResponse
-	29, // 52: community.v1.CommunityService.KickMember:output_type -> community.v1.KickMemberResponse
-	31, // 53: community.v1.CommunityService.ListMembers:output_type -> community.v1.ListMembersResponse
-	34, // 54: community.v1.CommunityService.SendMessage:output_type -> community.v1.SendMessageResponse
-	36, // 55: community.v1.CommunityService.GetMessages:output_type -> community.v1.GetMessagesResponse
-	40, // [40:56] is the sub-list for method output_type
-	24, // [24:40] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	42, // 23: community.v1.GetMessagesResponse.pagination:type_name -> common.v1.PaginationResponse
+	32, // 24: community.v1.EditMessageResponse.message:type_name -> community.v1.ChannelMessage
+	2,  // 25: community.v1.CommunityService.CreateCommunity:input_type -> community.v1.CreateCommunityRequest
+	4,  // 26: community.v1.CommunityService.GetCommunity:input_type -> community.v1.GetCommunityRequest
+	6,  // 27: community.v1.CommunityService.UpdateCommunity:input_type -> community.v1.UpdateCommunityRequest
+	8,  // 28: community.v1.CommunityService.DeleteCommunity:input_type -> community.v1.DeleteCommunityRequest
+	10, // 29: community.v1.CommunityService.ListCommunities:input_type -> community.v1.ListCommunitiesRequest
+	13, // 30: community.v1.CommunityService.CreateChannel:input_type -> community.v1.CreateChannelRequest
+	15, // 31: community.v1.CommunityService.GetChannel:input_type -> community.v1.GetChannelRequest
+	17, // 32: community.v1.CommunityService.UpdateChannel:input_type -> community.v1.UpdateChannelRequest
+	19, // 33: community.v1.CommunityService.DeleteChannel:input_type -> community.v1.DeleteChannelRequest
+	21, // 34: community.v1.CommunityService.ListChannels:input_type -> community.v1.ListChannelsRequest
+	24, // 35: community.v1.CommunityService.JoinCommunity:input_type -> community.v1.JoinCommunityRequest
+	26, // 36: community.v1.CommunityService.LeaveCommunity:input_type -> community.v1.LeaveCommunityRequest
+	28, // 37: community.v1.CommunityService.KickMember:input_type -> community.v1.KickMemberRequest
+	30, // 38: community.v1.CommunityService.ListMembers:input_type -> community.v1.ListMembersRequest
+	33, // 39: community.v1.CommunityService.SendMessage:input_type -> community.v1.SendMessageRequest
+	35, // 40: community.v1.CommunityService.GetMessages:input_type -> community.v1.GetMessagesRequest
+	37, // 41: community.v1.CommunityService.DeleteMessage:input_type -> community.v1.DeleteMessageRequest
+	39, // 42: community.v1.CommunityService.EditMessage:input_type -> community.v1.EditMessageRequest
+	3,  // 43: community.v1.CommunityService.CreateCommunity:output_type -> community.v1.CreateCommunityResponse
+	5,  // 44: community.v1.CommunityService.GetCommunity:output_type -> community.v1.GetCommunityResponse
+	7,  // 45: community.v1.CommunityService.UpdateCommunity:output_type -> community.v1.UpdateCommunityResponse
+	9,  // 46: community.v1.CommunityService.DeleteCommunity:output_type -> community.v1.DeleteCommunityResponse
+	11, // 47: community.v1.CommunityService.ListCommunities:output_type -> community.v1.ListCommunitiesResponse
+	14, // 48: community.v1.CommunityService.CreateChannel:output_type -> community.v1.CreateChannelResponse
+	16, // 49: community.v1.CommunityService.GetChannel:output_type -> community.v1.GetChannelResponse
+	18, // 50: community.v1.CommunityService.UpdateChannel:output_type -> community.v1.UpdateChannelResponse
+	20, // 51: community.v1.CommunityService.DeleteChannel:output_type -> community.v1.DeleteChannelResponse
+	22, // 52: community.v1.CommunityService.ListChannels:output_type -> community.v1.ListChannelsResponse
+	25, // 53: community.v1.CommunityService.JoinCommunity:output_type -> community.v1.JoinCommunityResponse
+	27, // 54: community.v1.CommunityService.LeaveCommunity:output_type -> community.v1.LeaveCommunityResponse
+	29, // 55: community.v1.CommunityService.KickMember:output_type -> community.v1.KickMemberResponse
+	31, // 56: community.v1.CommunityService.ListMembers:output_type -> community.v1.ListMembersResponse
+	34, // 57: community.v1.CommunityService.SendMessage:output_type -> community.v1.SendMessageResponse
+	36, // 58: community.v1.CommunityService.GetMessages:output_type -> community.v1.GetMessagesResponse
+	38, // 59: community.v1.CommunityService.DeleteMessage:output_type -> community.v1.DeleteMessageResponse
+	40, // 60: community.v1.CommunityService.EditMessage:output_type -> community.v1.EditMessageResponse
+	43, // [43:61] is the sub-list for method output_type
+	25, // [25:43] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_community_v1_community_proto_init() }
@@ -2314,7 +2511,7 @@ func file_community_v1_community_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_community_v1_community_proto_rawDesc), len(file_community_v1_community_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   36,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

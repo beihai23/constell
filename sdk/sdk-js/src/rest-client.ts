@@ -64,6 +64,63 @@ export class RESTClient {
     return this.handleResponse<T>(response);
   }
 
+  /**
+   * Upload files via multipart/form-data with per-upload progress.
+   * Uses XHR (fetch can't report request-body progress). The optional
+   * onProgress callback receives a 0..1 fraction as the request body uploads.
+   */
+  uploadWithProgress<T>(
+    path: string,
+    formData: FormData,
+    onProgress?: (fraction: number) => void,
+  ): Promise<T> {
+    // getValidToken is async; wrap the whole thing so the public signature can
+    // stay a plain Promise<T> (callers don't want to await the token first).
+    return this.auth.getValidToken().then(
+      (token) =>
+        new Promise<T>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${this.baseUrl}${path}`);
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          if (onProgress) {
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) onProgress(e.loaded / e.total);
+            };
+          }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText) as T);
+              } catch (err) {
+                reject(
+                  new ConstellError(
+                    "HTTP_ERROR",
+                    `Invalid JSON in upload response: ${err instanceof Error ? err.message : String(err)}`,
+                  ),
+                );
+              }
+            } else {
+              let message = `HTTP ${xhr.status}`;
+              try {
+                const json = JSON.parse(xhr.responseText) as {
+                  message?: string;
+                  error?: string;
+                };
+                message = json.message ?? json.error ?? message;
+              } catch {
+                // use default
+              }
+              if (xhr.status === 401) reject(new AuthError(message, 401));
+              else reject(new ConstellError("HTTP_ERROR", message, xhr.status));
+            }
+          };
+          xhr.onerror = () =>
+            reject(new NetworkError(`Network error during ${path}`));
+          xhr.send(formData);
+        }),
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------

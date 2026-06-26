@@ -8,10 +8,20 @@ import { useMessagesStore } from '@/stores/messagesStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useUIStore } from '@/stores/uiStore';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ErrorState } from '@/components/ui/state';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { Plus, LogOut } from 'lucide-react';
 import { CreateChannelDialog } from '@/components/channels/CreateChannelDialog';
 import type {
   Channel,
@@ -21,22 +31,21 @@ import type {
   CommunitySearchResult,
 } from '@constell/sdk-js';
 
-/** Exposed so MainLayout can focus the input via ⌘K. */
-export const searchInputRef = { current: null as HTMLInputElement | null };
-
 /**
  * Middle column (240px). Displays channel list or DM list depending on
- * the current route. The search input filters locally as you type;
- * pressing Enter calls the search API and shows results inline.
+ * the current route. The inline search input filters the current column
+ * locally as you type (channel/DM by name). Global ⌘K search lives in
+ * SearchDialog (mounted in MainLayout); the Enter-to-search-all behavior
+ * here is retained as a convenience.
  */
 export function ChannelList() {
-  const { communityId } = useParams();
+  const { communityId, channelId: routeChannelId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const client = useConstellClient();
   const communities = useCommunitiesStore((s) => s.communities);
   const channels = useCommunitiesStore((s) => s.channels);
-  const currentChannelId = useCommunitiesStore((s) => s.currentChannelId);
+  const removeCommunity = useCommunitiesStore((s) => s.removeCommunity);
   const channelUnreads = useUnreadStore((s) => s.channelUnreads);
 
   const isDMView = location.pathname.startsWith('/@me');
@@ -49,38 +58,75 @@ export function ChannelList() {
   const [filter, setFilter] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+
+  // Leave the current community (COMM-LEAVE-1). Owner cannot leave — the
+  // service rejects it and we surface the error.
+  const handleLeave = useCallback(async () => {
+    if (!communityId) return;
+    setLeaving(true);
+    try {
+      await client.leaveCommunity(communityId);
+      removeCommunity(communityId);
+      toast.success('Left the community');
+      setLeaveOpen(false);
+      navigate('/@me');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to leave community');
+    } finally {
+      setLeaving(false);
+    }
+  }, [communityId, client, removeCommunity, navigate]);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Expose ref for ⌘K
+  // Clear search results + error when filter is emptied
   useEffect(() => {
-    searchInputRef.current = inputRef.current;
-  });
-
-  // Clear search results when filter is emptied
-  useEffect(() => {
-    if (!filter) setSearchResults(null);
+    if (!filter) {
+      setSearchResults(null);
+      setSearchError(false);
+    }
   }, [filter]);
+
+  // Run the search API for the current filter. Factored out so the inline
+  // error-state Retry can re-run it (SEARCH-GLOBAL-5) instead of swallowing.
+  const runSearch = useCallback(
+    (q: string) => {
+      setSearchLoading(true);
+      setSearchError(false);
+      client
+        .search(q, { limit: 10 })
+        .then((res) => {
+          setSearchResults(res);
+        })
+        .catch(() => {
+          // Surface the failure — previously this was swallowed and looked
+          // identical to "no results".
+          setSearchResults(null);
+          setSearchError(true);
+        })
+        .finally(() => setSearchLoading(false));
+    },
+    [client],
+  );
 
   // Enter → call search API
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && filter.trim()) {
         e.preventDefault();
-        setSearchLoading(true);
-        client
-          .search(filter.trim(), { limit: 10 })
-          .then(setSearchResults)
-          .catch(() => setSearchResults(null))
-          .finally(() => setSearchLoading(false));
+        runSearch(filter.trim());
       }
       if (e.key === 'Escape') {
         setFilter('');
         setSearchResults(null);
+        setSearchError(false);
         inputRef.current?.blur();
       }
     },
-    [client, filter],
+    [runSearch, filter],
   );
 
   const filteredChannels = useMemo(
@@ -99,10 +145,20 @@ export function ChannelList() {
   return (
     <div className="flex w-60 shrink-0 flex-col bg-[#181825]">
       {/* Header */}
-      <div className="flex h-12 items-center px-4 shadow-sm">
-        <h2 className="truncate text-sm font-semibold text-[#cdd6f4]">
+      <div className="flex h-12 items-center gap-1 px-4 shadow-sm">
+        <h2 className="flex-1 truncate text-sm font-semibold text-[#cdd6f4]">
           {isDMView ? 'Direct Messages' : community?.name ?? 'Select a Community'}
         </h2>
+        {communityId && community && (
+          <button
+            onClick={() => setLeaveOpen(true)}
+            aria-label="Leave community"
+            title="Leave community"
+            className="flex size-6 shrink-0 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#313244] hover:text-[#f38ba8]"
+          >
+            <LogOut className="size-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Inline search input */}
@@ -122,7 +178,13 @@ export function ChannelList() {
           shrink below its content size and the ScrollArea scrolls internally
           instead of growing the column past the viewport (body scroll). */}
       <ScrollArea className="flex-1 min-h-0">
-        {showSearch ? (
+        {searchError ? (
+          <ErrorState
+            title="Search failed"
+            retry={() => runSearch(filter.trim())}
+            compact
+          />
+        ) : showSearch ? (
           <SearchResultsList
             results={searchResults}
             loading={searchLoading}
@@ -153,7 +215,7 @@ export function ChannelList() {
               <ChannelItem
                 key={channel.id}
                 channel={channel}
-                selected={currentChannelId === channel.id}
+                selected={routeChannelId === channel.id}
                 unread={channelUnreads.get(channel.id) ?? 0}
                 onClick={() => navigate(`/${communityId}/${channel.id}`)}
               />
@@ -179,6 +241,28 @@ export function ChannelList() {
           communityId={communityId}
         />
       )}
+
+      {/* Leave-community confirmation (COMM-LEAVE-1) */}
+      <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
+        <DialogContent className="gap-4 rounded-xl border border-[#313244] bg-[#1e1e2e] p-5 text-[#cdd6f4] shadow-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-[#cdd6f4]">
+              Leave {community?.name ?? 'community'}?
+            </DialogTitle>
+            <DialogDescription className="text-[#585b70]">
+              You won&apos;t receive messages from this community anymore. You can re-join if it stays public.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setLeaveOpen(false)} disabled={leaving}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleLeave} disabled={leaving}>
+              {leaving ? 'Leaving…' : 'Leave'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -200,6 +284,8 @@ function SearchResultsList({
 }) {
   const navigate = useNavigate();
   const client = useConstellClient();
+  const addCommunity = useCommunitiesStore((s) => s.addCommunity);
+  const setChannels = useCommunitiesStore((s) => s.setChannels);
 
   // The searcher actively pulls presence for every user referenced in the
   // results (matched users, DM peers) so each row shows current status —
@@ -242,14 +328,36 @@ function SearchResultsList({
             <CommunityResult
               key={community.id}
               community={community}
-              onClick={async () => {
-                if (!community.joined) {
+              onOpen={() => {
+                // Row click only enters communities already joined — never joins.
+                if (!community.joined) return;
+                navigate(`/${community.id}`);
+                onSelect();
+              }}
+              onJoin={async () => {
+                try {
+                  await client.joinCommunity(community.id);
+                  // Mirror useInitialData: push the community + its channels into
+                  // the stores so it shows up on the rail immediately, without
+                  // requiring a reload.
+                  addCommunity({
+                    id: community.id,
+                    name: community.name,
+                    description: community.description,
+                    iconUrl: community.iconUrl,
+                    ownerId: '',
+                    createdAt: 0,
+                    updatedAt: 0,
+                  });
                   try {
-                    await client.joinCommunity(community.id);
+                    const joinedChannels = await client.getChannels(community.id);
+                    setChannels(community.id, joinedChannels);
                   } catch {
-                    toast.error('Failed to join community');
-                    return;
+                    // Channels will be fetched on next view/reload; not fatal.
                   }
+                } catch {
+                  toast.error('Failed to join community');
+                  return;
                 }
                 navigate(`/${community.id}`);
                 onSelect();
@@ -353,14 +461,19 @@ function UserResult({ user, onClick }: { user: UserSearchResult; onClick: () => 
 
 function CommunityResult({
   community,
-  onClick,
+  onOpen,
+  onJoin,
 }: {
   community: CommunitySearchResult;
-  onClick: () => void;
+  onOpen: () => void;
+  onJoin: () => void;
 }) {
+  // The row is a div (not a button) so the inner Join button can be a real
+  // <button>. Clicking the row body only opens already-joined communities;
+  // joining is a deliberate click on the Join button, which stops propagation.
   return (
-    <button
-      onClick={onClick}
+    <div
+      onClick={onOpen}
       className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm text-[#a6adc8] transition-colors hover:bg-[#1e1e2e] hover:text-[#cdd6f4]"
     >
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#313244] text-xs font-semibold text-[#cdd6f4]">
@@ -373,9 +486,18 @@ function CommunityResult({
       {community.joined ? (
         <span className="shrink-0 text-[10px] text-[#585b70]">Joined</span>
       ) : (
-        <span className="shrink-0 text-[10px] text-[#cba6f7]">Join</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onJoin();
+          }}
+          className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-medium text-[#cba6f7] hover:bg-[#313244]"
+        >
+          Join
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -538,7 +660,7 @@ function DMListItem({
         )}
       </div>
       {conv.unread > 0 && !selected && (
-        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
+        <span data-slot="unread-badge" className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
           {conv.unread > 99 ? '99+' : conv.unread}
         </span>
       )}
@@ -561,6 +683,7 @@ function ChannelItem({ channel, selected, unread, onClick }: ChannelItemProps) {
   return (
     <button
       onClick={onClick}
+      aria-current={selected ? 'page' : 'false'}
       className={cn(
         'flex w-full items-center gap-1.5 rounded px-2 py-1 text-sm transition-colors',
         selected
@@ -572,7 +695,7 @@ function ChannelItem({ channel, selected, unread, onClick }: ChannelItemProps) {
       <span className="text-[#585b70]">#</span>
       <span className="truncate">{channel.name}</span>
       {unread > 0 && !selected && (
-        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
+        <span data-slot="unread-badge" className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-xs font-medium text-[#11111b]">
           {unread > 99 ? '99+' : unread}
         </span>
       )}

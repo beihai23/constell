@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,11 +226,18 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 
 	argIdx := 2
 	if cursor != "" {
-		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
-		args = append(args, cursor)
+		// Keyset-paginate by seq (monotonic, unique) rather than created_at,
+		// which collides for messages sent in the same instant and makes the
+		// page boundary non-deterministic.
+		curSeq, err := strconv.ParseInt(cursor, 10, 64)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+		}
+		query += fmt.Sprintf(` AND seq < $%d`, argIdx)
+		args = append(args, curSeq)
 		argIdx++
 	}
-	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+	query += fmt.Sprintf(` ORDER BY seq DESC LIMIT $%d`, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := r.pool.Query(ctx, query, args...)
@@ -250,7 +258,11 @@ func (r *Repository) GetDMHistory(ctx context.Context, conversationID string, li
 
 	var nextCursor string
 	if len(messages) > limit {
-		nextCursor = messages[limit].CreatedAt.Format(time.RFC3339Nano)
+		// Cursor = oldest seq in the RETURNED page (messages[limit-1]); the
+		// limit+1 peek row only signals "more exists". Using the peek row as
+		// the cursor would drop it — an off-by-one that lost every (limit+1)th
+		// message on scroll-back.
+		nextCursor = strconv.FormatInt(messages[limit-1].Seq, 10)
 		messages = messages[:limit]
 	}
 	return messages, nextCursor, nil

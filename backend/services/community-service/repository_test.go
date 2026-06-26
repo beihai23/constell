@@ -175,6 +175,54 @@ func TestGetChannelMessagesSince(t *testing.T) {
 	}
 }
 
+// TestGetChannelMessagesSeqOrder locks in the fix for reshuffled message order:
+// history must page by the monotonic seq (stable, unique) rather than created_at
+// (which collides for messages sent in the same instant and makes the page
+// boundary non-deterministic).
+func TestGetChannelMessagesSeqOrder(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := t.Context()
+
+	authorID := mustInsertTestUser(t, pool, uniqueEmail("author"))
+	comm := mustCreateTestCommunity(t, pool, authorID)
+	ch := mustCreateTestChannel(t, pool, comm.ID)
+	repo := NewRepository(pool)
+
+	t.Cleanup(func() {
+		c := context.Background()
+		_, _ = pool.Exec(c, `DELETE FROM channel_messages WHERE channel_id = $1`, ch.ID)
+		_, _ = pool.Exec(c, `DELETE FROM channels WHERE id = $1`, ch.ID)
+		_, _ = pool.Exec(c, `DELETE FROM communities WHERE id = $1`, comm.ID)
+		_, _ = pool.Exec(c, `DELETE FROM users WHERE id = $1`, authorID)
+	})
+
+	m1 := mustInsertChannelMsg(t, repo, ch.ID, authorID, "one")
+	m2 := mustInsertChannelMsg(t, repo, ch.ID, authorID, "two")
+	m3 := mustInsertChannelMsg(t, repo, ch.ID, authorID, "three")
+
+	// First page (no cursor) returns newest-first, strictly by seq — stable
+	// even if several messages share a created_at.
+	got, next, err := repo.GetChannelMessages(ctx, ch.ID, 50, "")
+	if err != nil {
+		t.Fatalf("GetChannelMessages: %v", err)
+	}
+	if len(got) != 3 || got[0].ID != m3.ID || got[1].ID != m2.ID || got[2].ID != m1.ID {
+		t.Fatalf("expected [m3,m2,m1] DESC by seq, got %+v", got)
+	}
+	if next != "" {
+		t.Fatalf("expected empty next cursor for a single page, got %q", next)
+	}
+
+	// Keyset cursor by seq: messages older than m2 must yield only m1.
+	got2, _, err := repo.GetChannelMessages(ctx, ch.ID, 50, fmt.Sprintf("%d", m2.Seq))
+	if err != nil {
+		t.Fatalf("GetChannelMessages(cursor): %v", err)
+	}
+	if len(got2) != 1 || got2[0].ID != m1.ID {
+		t.Fatalf("expected [m1] for seq<%d, got %+v", m2.Seq, got2)
+	}
+}
+
 // TestIsCommunityPublic exercises the visibility gate JoinCommunity relies on.
 // A public community reports (true, nil); a private one reports (false, nil);
 // a nonexistent id reports (false, err). Callers treat both non-true results

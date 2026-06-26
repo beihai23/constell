@@ -14,12 +14,12 @@ type mockUserSvcClient struct {
 	lastContent  string
 }
 
-func (m *mockUserSvcClient) SendDM(ctx context.Context, senderID, receiverID, content string) (messageID string, createdAt string, err error) {
+func (m *mockUserSvcClient) SendDM(ctx context.Context, senderID, receiverID, content string) (messageID string, seq int64, err error) {
 	m.sendDMCalled = true
 	m.lastSenderID = senderID
 	m.lastReceiver = receiverID
 	m.lastContent = content
-	return "dm-msg-001", "1700000000", nil
+	return "dm-msg-001", 42, nil
 }
 
 type mockCommunitySvcClient struct {
@@ -29,12 +29,12 @@ type mockCommunitySvcClient struct {
 	lastContent   string
 }
 
-func (m *mockCommunitySvcClient) SendMessage(ctx context.Context, senderID, channelID, content string) (messageID string, createdAt string, err error) {
+func (m *mockCommunitySvcClient) SendMessage(ctx context.Context, senderID, channelID, content string) (messageID string, seq int64, err error) {
 	m.sendMsgCalled = true
 	m.lastSenderID = senderID
 	m.lastChannelID = channelID
 	m.lastContent = content
-	return "ch-msg-001", "1700000001", nil
+	return "ch-msg-001", 7, nil
 }
 
 func TestRouter_Route_SendDM(t *testing.T) {

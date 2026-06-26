@@ -222,13 +222,13 @@ func (s *UserService) SendDM(
 	}
 
 	// Publish dm.created NATS event
-	s.publishDMCreated(ctx, callerID, targetUserID, conv.ID, content, msg.CreatedAt.Unix())
+	s.publishDMCreated(ctx, msg.ID, callerID, targetUserID, conv.ID, content, msg.CreatedAt.Unix(), msg.Seq)
 
 	resp := connect.NewResponse(&pbv1.SendDMResponse{
 		Message: &pbv1.DMMessage{
 			Id: msg.ID, ConversationId: msg.ConversationID,
 			SenderId: msg.SenderID, Content: msg.Content,
-			CreatedAt: msg.CreatedAt.Unix(),
+			CreatedAt: msg.CreatedAt.Unix(), Seq: msg.Seq,
 		},
 	})
 	return resp, nil
@@ -358,16 +358,18 @@ func (s *UserService) GetDMConversations(
 }
 
 // publishDMCreated publishes a constell.dm.created NATS event.
-func (s *UserService) publishDMCreated(ctx context.Context, senderID, receiverID, conversationID, content string, createdAt int64) {
+func (s *UserService) publishDMCreated(ctx context.Context, messageID, senderID, receiverID, conversationID, content string, createdAt, seq int64) {
 	if s.natsConn == nil {
 		return
 	}
 	payload := map[string]interface{}{
+		"message_id":      messageID,
 		"sender_id":       senderID,
 		"receiver_id":     receiverID,
 		"conversation_id": conversationID,
 		"content":         content,
 		"created_at":      createdAt,
+		"seq":             seq,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

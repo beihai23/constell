@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
@@ -14,12 +15,13 @@ import (
 
 // CommunityHandler handles REST API requests for community operations.
 type CommunityHandler struct {
-	client communityv1connect.CommunityServiceClient
+	client          communityv1connect.CommunityServiceClient
+	filesPublicBase string // browser-reachable base for reconstructing attachment URLs
 }
 
 // NewCommunityHandler creates a new CommunityHandler.
-func NewCommunityHandler(client communityv1connect.CommunityServiceClient) *CommunityHandler {
-	return &CommunityHandler{client: client}
+func NewCommunityHandler(client communityv1connect.CommunityServiceClient, filesPublicBase string) *CommunityHandler {
+	return &CommunityHandler{client: client, filesPublicBase: filesPublicBase}
 }
 
 // --- Community ---
@@ -457,6 +459,28 @@ func (h *CommunityHandler) RemoveMember(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
+// LeaveCommunity handles DELETE /api/v1/communities/:id/leave.
+// The caller removes themselves (owner cannot leave — enforced by the service).
+func (h *CommunityHandler) LeaveCommunity(w http.ResponseWriter, r *http.Request) {
+	communityID := chi.URLParam(r, "id")
+	if communityID == "" {
+		writeError(w, http.StatusBadRequest, "community id is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.LeaveCommunityRequest{
+		CommunityId: communityID,
+	})
+	forwardAuth(r, cr)
+
+	if _, err := h.client.LeaveCommunity(r.Context(), cr); err != nil {
+		writeConnectError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "left"})
+}
+
 // ListMembers handles GET /api/v1/communities/:id/members.
 func (h *CommunityHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	communityID := chi.URLParam(r, "id")
@@ -507,6 +531,7 @@ type attachmentResponse struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
+	URL         string `json:"url"`
 }
 
 // messageResponse is the JSON representation of a channel message.
@@ -521,8 +546,19 @@ type messageResponse struct {
 	Attachments []attachmentResponse `json:"attachments"`
 }
 
+// attachmentURL reconstructs a browser-reachable URL for an attachment from its
+// file id. The community-service attachment row carries no URL; the object key
+// is deterministically originals/{file_id} in the constell bucket (matching
+// file-service's key scheme), so the URL is {filesPublicBase}/constell/originals/{file_id}.
+func (h *CommunityHandler) attachmentURL(fileID string) string {
+	if fileID == "" || h.filesPublicBase == "" {
+		return ""
+	}
+	return strings.TrimRight(h.filesPublicBase, "/") + "/constell/originals/" + fileID
+}
+
 // messageToResponse converts a proto ChannelMessage to a JSON response.
-func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
+func (h *CommunityHandler) messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 	if m == nil {
 		return messageResponse{}
 	}
@@ -541,6 +577,7 @@ func messageToResponse(m *communityv1.ChannelMessage) messageResponse {
 			Filename:    a.Filename,
 			ContentType: a.ContentType,
 			Size:        a.Size,
+			URL:         h.attachmentURL(a.FileId),
 		})
 	}
 	return resp
@@ -578,7 +615,63 @@ func (h *CommunityHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, messageToResponse(resp.Msg.Message))
+	writeJSON(w, http.StatusCreated, h.messageToResponse(resp.Msg.Message))
+}
+
+// DeleteMessage handles DELETE /api/v1/channels/:id/messages/:mid.
+// Only the message author may delete (enforced by the service — MSG-DEL-2).
+func (h *CommunityHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "mid")
+	if messageID == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.DeleteMessageRequest{
+		MessageId: messageID,
+	})
+	forwardAuth(r, cr)
+
+	if _, err := h.client.DeleteMessage(r.Context(), cr); err != nil {
+		writeConnectError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// EditMessage handles PATCH /api/v1/channels/:id/messages/:mid.
+// Only the author may edit (enforced by the service — MSG-EDIT-1).
+func (h *CommunityHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "mid")
+	if messageID == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	cr := connect.NewRequest(&communityv1.EditMessageRequest{
+		MessageId: messageID,
+		Content:   body.Content,
+	})
+	forwardAuth(r, cr)
+
+	resp, err := h.client.EditMessage(r.Context(), cr)
+	if err != nil {
+		writeConnectError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h.messageToResponse(resp.Msg.Message))
 }
 
 // GetHistory handles GET /api/v1/channels/:id/messages.
@@ -611,7 +704,7 @@ func (h *CommunityHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 
 	messages := make([]messageResponse, 0, len(resp.Msg.Messages))
 	for _, m := range resp.Msg.Messages {
-		messages = append(messages, messageToResponse(m))
+		messages = append(messages, h.messageToResponse(m))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

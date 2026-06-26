@@ -31,14 +31,22 @@ export function useClientEvents() {
 
     const onChannelMessage = (msg: ChannelMessage) => {
       appendChannelMessage(msg.channelId, msg);
-      if (msg.authorId !== user?.id) {
+      // Only tally unread for messages the user isn't already looking at:
+      // own messages, and messages in the channel currently being viewed,
+      // don't increment (UNREAD-1). Read via getState() to avoid a stale
+      // closure across re-subscribes.
+      const activeChannelId = useUIStore.getState().activeChannelId;
+      if (msg.authorId !== user?.id && msg.channelId !== activeChannelId) {
         incrementUnread('channel', msg.channelId);
       }
     };
 
     const onDMReceived = (msg: DMMessage) => {
       appendDMMessage(msg.senderId, msg);
-      incrementUnread('dm', msg.senderId);
+      const activePeerId = useUIStore.getState().activePeerId;
+      if (msg.senderId !== activePeerId) {
+        incrementUnread('dm', msg.senderId);
+      }
     };
 
     const onUserOnline = ({ userId }: { userId: string }) => setOnline(userId);

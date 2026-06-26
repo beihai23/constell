@@ -194,6 +194,7 @@ services:
       SEARCH_SERVICE_URL: "http://search-service:9085"
       NOTIFY_SERVICE_URL: "http://notify-service:9086"
       JWT_SECRET: "dev-secret-change-me"
+      FILES_PUBLIC_BASE: "http://localhost:9000"
       REDIS_URL: "redis:6379"
       REGISTRY_TYPE: "static"
       SERVICES_CONFIG_PATH: "/app/configs/services.yaml"
@@ -301,7 +302,12 @@ services:
       MINIO_SECRET_KEY: "minioadmin"
       MINIO_BUCKET: "constell"
       MINIO_USE_SSL: "false"
-      MINIO_BASE_URL: "http://minio:9000"
+      # Browser-reachable base for the URLs returned to clients. MINIO_ENDPOINT
+      # (minio:9000) is what file-service uses for S3 API calls inside the
+      # Docker network; MINIO_BASE_URL is only baked into the URL string the
+      # browser fetches, so it must be a host the browser can resolve. Dev maps
+      # minio to the host port 9000. (Prod should point at a CDN/proxy.)
+      MINIO_BASE_URL: "http://localhost:9000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://openobserve:5080/api/default/v1/otlp"
     ports:
       - "9084:9084"

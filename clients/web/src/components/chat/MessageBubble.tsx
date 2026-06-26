@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useResolvedUser } from '@/hooks/useResolvedUser';
 import type { ChannelMessage, DMMessage, Attachment } from '@constell/sdk-js';
-import { Clock, AlertCircle, Image, FileText } from 'lucide-react';
+import { Clock, AlertCircle, Image, FileText, Trash2, Pencil } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -12,6 +12,12 @@ interface MessageBubbleProps {
   isOwn: boolean;
   status?: 'sending' | 'sent' | 'failed';
   onRetry?: () => void;
+  /** Show a delete affordance (only meaningful for own, channel messages). */
+  canDelete?: boolean;
+  onDelete?: () => void;
+  /** Edit affordance (own channel messages only). */
+  canEdit?: boolean;
+  onEdit?: (content: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +54,7 @@ function formatTime(ts: number): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, isOwn, status, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, status, onRetry, canDelete, onDelete, canEdit, onEdit }: MessageBubbleProps) {
   const authorId = 'authorId' in message ? message.authorId : message.senderId;
   // Resolve the author's nickname lazily via REST (pull-based, cached in
   // usersStore). Falls back to the raw id while loading or if lookup fails,
@@ -56,6 +62,40 @@ export function MessageBubble({ message, isOwn, status, onRetry }: MessageBubble
   const author = useResolvedUser(authorId);
   const authorName = author?.nickname || authorId;
   const color = useMemo(() => usernameColor(authorId), [authorId]);
+
+  // Inline edit mode (MSG-EDIT-1). Editing is local to the bubble; commit
+  // delegates to onEdit (which calls the SDK + updates the store).
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const [saving, setSaving] = useState(false);
+
+  // A message is "edited" when its updated_at advanced past created_at.
+  const updatedAt = 'updatedAt' in message ? message.updatedAt : undefined;
+  const edited = typeof updatedAt === 'number' && updatedAt > message.createdAt;
+
+  const startEdit = () => {
+    setDraft(message.content);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft(message.content);
+  };
+  const saveEdit = async () => {
+    if (!onEdit) return;
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === message.content || saving) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onEdit(trimmed);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex gap-3 px-4 py-0.5 hover:bg-[#1e1e2e]/50 group">
@@ -70,7 +110,7 @@ export function MessageBubble({ message, isOwn, status, onRetry }: MessageBubble
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        {/* Header row: username + timestamp */}
+        {/* Header row: username + timestamp + hover actions (own msgs) */}
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-semibold" style={{ color }}>
             {authorName}
@@ -78,20 +118,75 @@ export function MessageBubble({ message, isOwn, status, onRetry }: MessageBubble
           <span className="text-xs text-[#585b70]">
             {formatTime(message.createdAt)}
           </span>
-        </div>
-
-        {/* Message body */}
-        <div className="mt-0.5 text-sm text-[#cdd6f4] whitespace-pre-wrap break-words">
-          {message.content}
-        </div>
-
-        {/* Attachments */}
-        {message.attachments.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-2">
-            {message.attachments.map((att) => (
-              <AttachmentPreview key={att.id} attachment={att} />
-            ))}
+          <div className="ml-auto -mt-0.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+            {canEdit && onEdit && !editing && (
+              <button
+                onClick={startEdit}
+                aria-label="Edit message"
+                title="Edit message"
+                className="flex size-5 items-center justify-center rounded text-[#585b70] hover:bg-[#313244] hover:text-[#cdd6f4]"
+              >
+                <Pencil className="size-3" />
+              </button>
+            )}
+            {canDelete && onDelete && (
+              <button
+                onClick={onDelete}
+                aria-label="Delete message"
+                title="Delete message"
+                className="flex size-5 items-center justify-center rounded text-[#585b70] hover:bg-[#313244] hover:text-[#f38ba8]"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            )}
           </div>
+        </div>
+
+        {/* Message body — inline editor when editing, else content */}
+        {editing ? (
+          <div className="mt-1">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              autoFocus
+              rows={2}
+              className="w-full resize-none rounded-lg border border-[#313244] bg-[#11111b] px-2 py-1 text-sm text-[#cdd6f4] outline-none focus:border-[#585b70]"
+            />
+            <div className="mt-1 flex gap-2">
+              <button
+                onClick={saveEdit}
+                disabled={saving || !draft.trim() || draft.trim() === message.content}
+                className="rounded bg-[#cba6f7] px-2 py-0.5 text-xs font-medium text-[#11111b] disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={cancelEdit}
+                disabled={saving}
+                className="rounded px-2 py-0.5 text-xs text-[#585b70] hover:text-[#cdd6f4]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mt-0.5 text-sm text-[#cdd6f4] whitespace-pre-wrap break-words">
+              {message.content}
+              {edited && (
+                <span className="ml-1 text-[10px] text-[#585b70]">(edited)</span>
+              )}
+            </div>
+
+            {/* Attachments */}
+            {message.attachments.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-2">
+                {message.attachments.map((att) => (
+                  <AttachmentPreview key={att.id} attachment={att} />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Status indicator for own messages */}
@@ -134,9 +229,9 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
         rel="noopener noreferrer"
         className="block max-w-[300px] overflow-hidden rounded-lg border border-[#313244] transition-colors hover:border-[#585b70]"
       >
-        {attachment.thumbnailUrl ? (
+        {attachment.thumbnailUrl || attachment.url ? (
           <img
-            src={attachment.thumbnailUrl}
+            src={attachment.thumbnailUrl || attachment.url}
             alt={attachment.filename}
             className="h-auto w-full object-cover"
             loading="lazy"

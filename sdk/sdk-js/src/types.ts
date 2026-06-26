@@ -116,6 +116,15 @@ export interface FileInfo {
   createdAt: number;
 }
 
+/**
+ * Result of a send (DM / channel message) ACK: the server-assigned id and seq
+ * of the created message. Lets the sender reconcile its optimistic local copy.
+ */
+export interface MessageAck {
+  messageId: string;
+  seq: number;
+}
+
 // ---- Search (search/v1) ---------------------------------------------------
 
 export enum SearchType {

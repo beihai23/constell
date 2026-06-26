@@ -95,4 +95,5 @@ export type {
   ClientConfig,
   PageOptions,
   PageResult,
+  MessageAck,
 } from "./types.js";

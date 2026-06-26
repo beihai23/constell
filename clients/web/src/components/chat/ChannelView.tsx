@@ -20,6 +20,7 @@ export function ChannelView() {
   const setChannels = useCommunitiesStore((s) => s.setChannels);
   const clearUnread = useUnreadStore((s) => s.clearUnread);
   const showMemberList = useUIStore((s) => s.showMemberList);
+  const setActiveChannel = useUIStore((s) => s.setActiveChannel);
 
   // Load channels for the community if not already loaded
   useEffect(() => {
@@ -31,21 +32,25 @@ export function ChannelView() {
     });
   }, [communityId, client, setChannels]);
 
-  // Subscribe to channel + clear unreads on mount; unsubscribe on unmount
+  // Subscribe to channel + clear unreads on mount; unsubscribe on unmount.
+  // Also mark this channel as active so incoming messages don't tally unread
+  // while the user is viewing it (UNREAD-1).
   useEffect(() => {
     if (!channelId) return;
 
     client.subscribeChannel(channelId);
     clearUnread('channel', channelId);
+    setActiveChannel(channelId);
 
     return () => {
       client.unsubscribeChannel(channelId);
+      setActiveChannel(null);
     };
-  }, [channelId, client, clearUnread]);
+  }, [channelId, client, clearUnread, setActiveChannel]);
 
   return (
-    <div className="flex flex-1 min-w-0">
-      <div className="flex flex-1 flex-col min-w-0">
+    <div className="flex min-h-0 flex-1 min-w-0">
+      <div className="flex min-h-0 flex-1 flex-col min-w-0">
         <ChatHeader />
         <MessageList />
         <ChatInput />

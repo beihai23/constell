@@ -96,11 +96,11 @@ export function ChatHeader() {
 
       {/* Right section — action buttons */}
       <div className="flex shrink-0 items-center gap-1">
-        {/** Search button — only in channel mode, focuses the sidebar search */}
+        {/** Search button — only in channel mode, opens the ⌘K palette */}
         {!isDM && (
           <button
             className="flex h-8 w-8 items-center justify-center rounded text-[#585b70] transition-colors hover:bg-[#313244] hover:text-[#cdd6f4]"
-            onClick={() => { const el = document.querySelector<HTMLInputElement>('[placeholder="Search..."]'); el?.focus(); }}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
             aria-label="Search"
             title="Search (Cmd+K)"
           >

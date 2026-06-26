@@ -455,6 +455,11 @@ type ServerEvent struct {
 	Type  ServerEventType        `protobuf:"varint,1,opt,name=type,proto3,enum=gateway.v1.ServerEventType" json:"type,omitempty"`
 	// For ACK responses, echoes the client's request_id.
 	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// For SEND_DM / SEND_CHANNEL_MESSAGE ACKs: the server-assigned id and seq of
+	// the created message, so the sender can reconcile its optimistic local copy
+	// (replace the temp id with the real one and pick up the authoritative seq).
+	AckMessageId string `protobuf:"bytes,3,opt,name=ack_message_id,json=ackMessageId,proto3" json:"ack_message_id,omitempty"`
+	AckSeq       int64  `protobuf:"varint,4,opt,name=ack_seq,json=ackSeq,proto3" json:"ack_seq,omitempty"`
 	// Exactly one of the following is set, depending on type.
 	DmReceivedEvent     *DMReceivedEvent             `protobuf:"bytes,10,opt,name=dm_received_event,json=dmReceivedEvent,proto3" json:"dm_received_event,omitempty"`
 	ChannelMessageEvent *ChannelMessageReceivedEvent `protobuf:"bytes,11,opt,name=channel_message_event,json=channelMessageEvent,proto3" json:"channel_message_event,omitempty"`
@@ -508,6 +513,20 @@ func (x *ServerEvent) GetRequestId() string {
 		return x.RequestId
 	}
 	return ""
+}
+
+func (x *ServerEvent) GetAckMessageId() string {
+	if x != nil {
+		return x.AckMessageId
+	}
+	return ""
+}
+
+func (x *ServerEvent) GetAckSeq() int64 {
+	if x != nil {
+		return x.AckSeq
+	}
+	return 0
 }
 
 func (x *ServerEvent) GetDmReceivedEvent() *DMReceivedEvent {
@@ -606,6 +625,7 @@ type DMReceivedEvent struct {
 	Content        string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Attachments    []*v1.Attachment       `protobuf:"bytes,6,rep,name=attachments,proto3" json:"attachments,omitempty"`
+	Seq            int64                  `protobuf:"varint,7,opt,name=seq,proto3" json:"seq,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -682,6 +702,13 @@ func (x *DMReceivedEvent) GetAttachments() []*v1.Attachment {
 	return nil
 }
 
+func (x *DMReceivedEvent) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
 // ChannelMessageReceivedEvent is pushed when a new message appears in a subscribed channel.
 type ChannelMessageReceivedEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -692,6 +719,7 @@ type ChannelMessageReceivedEvent struct {
 	Content        string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	CreatedAt      int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Attachments    []*v1.Attachment       `protobuf:"bytes,7,rep,name=attachments,proto3" json:"attachments,omitempty"`
+	Seq            int64                  `protobuf:"varint,8,opt,name=seq,proto3" json:"seq,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -773,6 +801,13 @@ func (x *ChannelMessageReceivedEvent) GetAttachments() []*v1.Attachment {
 		return x.Attachments
 	}
 	return nil
+}
+
+func (x *ChannelMessageReceivedEvent) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
 }
 
 // UserOnlineEvent is pushed when a user comes online.
@@ -1040,11 +1075,13 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"channel_id\x18\x01 \x01(\tR\tchannelId\":\n" +
 	"\x19UnsubscribeChannelRequest\x12\x1d\n" +
 	"\n" +
-	"channel_id\x18\x01 \x01(\tR\tchannelId\"\x9f\x04\n" +
+	"channel_id\x18\x01 \x01(\tR\tchannelId\"\xde\x04\n" +
 	"\vServerEvent\x12/\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1b.gateway.v1.ServerEventTypeR\x04type\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\x12G\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12$\n" +
+	"\x0eack_message_id\x18\x03 \x01(\tR\fackMessageId\x12\x17\n" +
+	"\aack_seq\x18\x04 \x01(\x03R\x06ackSeq\x12G\n" +
 	"\x11dm_received_event\x18\n" +
 	" \x01(\v2\x1b.gateway.v1.DMReceivedEventR\x0fdmReceivedEvent\x12[\n" +
 	"\x15channel_message_event\x18\v \x01(\v2'.gateway.v1.ChannelMessageReceivedEventR\x13channelMessageEvent\x12G\n" +
@@ -1055,7 +1092,7 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\x12notification_event\x18\x0f \x01(\v2\x1d.gateway.v1.NotificationEventR\x11notificationEvent\")\n" +
 	"\bAckEvent\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xe8\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xfa\x01\n" +
 	"\x0fDMReceivedEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x1b\n" +
@@ -1064,7 +1101,8 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x127\n" +
-	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\"\x93\x02\n" +
+	"\vattachments\x18\x06 \x03(\v2\x15.common.v1.AttachmentR\vattachments\x12\x10\n" +
+	"\x03seq\x18\a \x01(\x03R\x03seq\"\xa5\x02\n" +
 	"\x1bChannelMessageReceivedEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x1d\n" +
@@ -1075,7 +1113,8 @@ const file_gateway_v1_gateway_proto_rawDesc = "" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x127\n" +
-	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\"*\n" +
+	"\vattachments\x18\a \x03(\v2\x15.common.v1.AttachmentR\vattachments\x12\x10\n" +
+	"\x03seq\x18\b \x01(\x03R\x03seq\"*\n" +
 	"\x0fUserOnlineEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"+\n" +
 	"\x10UserOfflineEvent\x12\x17\n" +

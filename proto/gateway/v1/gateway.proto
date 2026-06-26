@@ -86,6 +86,12 @@ message ServerEvent {
   // For ACK responses, echoes the client's request_id.
   string request_id = 2;
 
+  // For SEND_DM / SEND_CHANNEL_MESSAGE ACKs: the server-assigned id and seq of
+  // the created message, so the sender can reconcile its optimistic local copy
+  // (replace the temp id with the real one and pick up the authoritative seq).
+  string ack_message_id = 3;
+  int64 ack_seq = 4;
+
   // Exactly one of the following is set, depending on type.
   DMReceivedEvent dm_received_event = 10;
   ChannelMessageReceivedEvent channel_message_event = 11;
@@ -108,6 +114,7 @@ message DMReceivedEvent {
   string content = 4;
   int64 created_at = 5;
   repeated common.v1.Attachment attachments = 6;
+  int64 seq = 7;
 }
 
 // ChannelMessageReceivedEvent is pushed when a new message appears in a subscribed channel.
@@ -119,6 +126,7 @@ message ChannelMessageReceivedEvent {
   string content = 5;
   int64 created_at = 6;
   repeated common.v1.Attachment attachments = 7;
+  int64 seq = 8;
 }
 
 // UserOnlineEvent is pushed when a user comes online.

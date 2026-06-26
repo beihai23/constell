@@ -1,13 +1,16 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Outlet } from 'react-router';
 import { CommunityRail } from './CommunityRail';
-import { ChannelList, searchInputRef } from './ChannelList';
+import { ChannelList } from './ChannelList';
 import { ConnectionStatusBar } from './ConnectionStatusBar';
+import { SearchDialog } from '@/components/search/SearchDialog';
 import { useClientEvents } from '@/hooks/useClientEvents';
 import { useInitialData } from '@/hooks/useInitialData';
 import { useMessageSync } from '@/hooks/useMessageSync';
 
 export function MainLayout() {
+  const [searchOpen, setSearchOpen] = useState(false);
+
   // Bridge SDK events to Zustand stores (called once at top level)
   useClientEvents();
   // Load initial data (communities, channels, unreads) after login
@@ -16,12 +19,21 @@ export function MainLayout() {
   // once alongside useClientEvents so it lives exactly at the authenticated-app root.
   useMessageSync();
 
-  // ⌘K / Ctrl+K → focus the search input in ChannelList
+  // ⌘K / Ctrl+K → open the global search palette (SearchDialog). The sidebar's
+  // inline input is now scoped to filtering the current column only.
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
-      searchInputRef.current?.focus();
+      setSearchOpen((v) => !v);
     }
+  }, []);
+
+  // ChatHeader's search button dispatches 'open-search' to open the palette
+  // without a keyboard shortcut.
+  useEffect(() => {
+    const opener = () => setSearchOpen(true);
+    window.addEventListener('open-search', opener);
+    return () => window.removeEventListener('open-search', opener);
   }, []);
 
   useEffect(() => {
@@ -38,10 +50,13 @@ export function MainLayout() {
       <div className="flex flex-1 min-h-0">
         <CommunityRail />
         <ChannelList />
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex flex-1 min-w-0 flex-col min-h-0">
           <Outlet />
         </div>
       </div>
+
+      {/* ⌘K global search palette */}
+      <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   );
 }

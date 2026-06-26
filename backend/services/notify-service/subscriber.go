@@ -16,11 +16,13 @@ import (
 
 // DMCreatedEvent represents a new DM message event consumed from NATS.
 type DMCreatedEvent struct {
+	MessageID      string `json:"message_id"`
 	SenderID       string `json:"sender_id"`
 	ReceiverID     string `json:"receiver_id"`
 	ConversationID string `json:"conversation_id"`
 	Content        string `json:"content"`
 	CreatedAt      int64  `json:"created_at"`
+	Seq            int64  `json:"seq"`
 }
 
 // MessageCreatedEvent represents a new channel message event consumed from NATS.
@@ -32,6 +34,7 @@ type MessageCreatedEvent struct {
 	Content     string   `json:"content"`
 	MemberIDs   []string `json:"member_ids"`
 	CreatedAt   int64    `json:"created_at"`
+	Seq         int64    `json:"seq"`
 }
 
 // MemberJoinedEvent represents a member joining a community.
@@ -143,10 +146,11 @@ func (s *Subscriber) handleDMCreated(msg *nats.Msg) {
 		Targets:   []string{evt.ReceiverID},
 		EventType: "DM_RECEIVED",
 		Payload: map[string]interface{}{
-			"message_id": fmt.Sprintf("dm-%s-%d", evt.ConversationID, evt.CreatedAt),
+			"message_id": evt.MessageID,
 			"sender_id":  evt.SenderID,
 			"content":    truncate(evt.Content, 200),
 			"created_at": evt.CreatedAt,
+			"seq":        evt.Seq,
 		},
 	}
 	s.pushToUser(ctx, evt.ReceiverID, push)
@@ -187,6 +191,7 @@ func (s *Subscriber) handleMessageCreated(msg *nats.Msg) {
 				"sender_id":  evt.SenderID,
 				"content":    truncate(evt.Content, 200),
 				"created_at": evt.CreatedAt,
+				"seq":        evt.Seq,
 			},
 		}
 		for _, target := range targets {

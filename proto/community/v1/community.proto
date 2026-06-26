@@ -31,6 +31,11 @@ service CommunityService {
   // --- Channel Messages ---
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+  // Delete a channel message. Only the message author may delete (MSG-DEL-2).
+  rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);
+  // Edit a channel message's content. Only the author may edit; bumps
+  // updated_at so clients can show an "(edited)" marker (MSG-EDIT-1).
+  rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
 }
 
 // =============================================
@@ -239,4 +244,19 @@ message GetMessagesRequest {
 message GetMessagesResponse {
   repeated ChannelMessage messages = 1;
   common.v1.PaginationResponse pagination = 2;
+}
+
+message DeleteMessageRequest {
+  string message_id = 1;
+}
+
+message DeleteMessageResponse {}
+
+message EditMessageRequest {
+  string message_id = 1;
+  string content = 2;
+}
+
+message EditMessageResponse {
+  ChannelMessage message = 1;
 }

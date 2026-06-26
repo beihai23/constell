@@ -36,6 +36,10 @@ type Config struct {
 	SearchServiceURL    string `env:"SEARCH_SERVICE_URL" default:"http://search-service:9085"`
 	NotifyServiceURL    string `env:"NOTIFY_SERVICE_URL" default:"http://notify-service:9086"`
 
+	// Browser-reachable base for attachment URLs reconstructed from file_id
+	// (matches file-service's MINIO_BASE_URL). Dev: minio maps to host :9000.
+	FilesPublicBase string `env:"FILES_PUBLIC_BASE" default:"http://localhost:9000"`
+
 	RegistryType    string `env:"REGISTRY_TYPE" default:"static"`
 	ServicesCfgPath string `env:"SERVICES_CONFIG_PATH" default:"deploy/configs/services.yaml"`
 
@@ -153,7 +157,7 @@ func main() {
 	r.HandleFunc("/readyz", hc.ReadyHandler())
 
 	// Register all REST routes
-	registerRoutes(r, clients, cfg.JWTSecret, redisClient)
+	registerRoutes(r, clients, cfg.JWTSecret, redisClient, cfg.FilesPublicBase)
 
 	// Wrap mux with metrics middleware
 	var handler http.Handler = r

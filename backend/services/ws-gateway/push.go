@@ -127,6 +127,7 @@ func (ps *PushSubscriber) buildDMReceivedEvent(p map[string]interface{}) (*gatew
 			SenderNickname: getStringField(p, "sender_nickname"),
 			Content:        getStringField(p, "content"),
 			CreatedAt:      getInt64Field(p, "created_at"),
+			Seq:            getInt64Field(p, "seq"),
 		},
 	}, nil
 }
@@ -141,6 +142,7 @@ func (ps *PushSubscriber) buildChannelMessageEvent(p map[string]interface{}) (*g
 			SenderNickname: getStringField(p, "sender_nickname"),
 			Content:        getStringField(p, "content"),
 			CreatedAt:      getInt64Field(p, "created_at"),
+			Seq:            getInt64Field(p, "seq"),
 		},
 	}, nil
 }

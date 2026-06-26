@@ -41,6 +41,7 @@ import type {
   Attachment,
   PageOptions,
   PageResult,
+  MessageAck,
 } from "./types.js";
 import { ConstellError, NetworkError, AuthError } from "./errors.js";
 
@@ -78,7 +79,7 @@ export interface ClientEvents {
 // ---------------------------------------------------------------------------
 
 interface PendingRequest {
-  resolve: (value: unknown) => void;
+  resolve: (value: MessageAck) => void;
   reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -374,7 +375,7 @@ export class ConstellClient {
    * Send a direct message via WebSocket.
    * Returns a promise that resolves when the server ACKs (or rejects on timeout / error).
    */
-  sendDM(receiverId: string, content: string, fileIds?: string[]): Promise<unknown> {
+  sendDM(receiverId: string, content: string, fileIds?: string[]): Promise<MessageAck> {
     const requestId = generateRequestId();
     const msg = createClientMessage({
       type: ClientMessageType.SEND_DM,
@@ -414,7 +415,7 @@ export class ConstellClient {
    * Send a channel message via WebSocket.
    * Returns a promise that resolves on ACK, rejects on timeout / error.
    */
-  sendChannelMessage(channelId: string, content: string, fileIds?: string[]): Promise<unknown> {
+  sendChannelMessage(channelId: string, content: string, fileIds?: string[]): Promise<MessageAck> {
     const requestId = generateRequestId();
     const msg = createClientMessage({
       type: ClientMessageType.SEND_CHANNEL_MESSAGE,
@@ -508,6 +509,34 @@ export class ConstellClient {
     await this.rest.post(`/api/v1/communities/${communityId}/join`, undefined);
   }
 
+  /** Leave a community (self-remove). Owner cannot leave. */
+  async leaveCommunity(communityId: string): Promise<void> {
+    await this.rest.delete(`/api/v1/communities/${communityId}/leave`);
+  }
+
+  /** Kick a member from a community (owner / KickMembers permission only). */
+  async kickMember(communityId: string, userId: string): Promise<void> {
+    await this.rest.delete(`/api/v1/communities/${communityId}/members/${userId}`);
+  }
+
+  /** Delete a channel message (author only). */
+  async deleteChannelMessage(channelId: string, messageId: string): Promise<void> {
+    await this.rest.delete(`/api/v1/channels/${channelId}/messages/${messageId}`);
+  }
+
+  /** Edit a channel message's content (author only). Returns the updated message. */
+  async editChannelMessage(
+    channelId: string,
+    messageId: string,
+    content: string,
+  ): Promise<ChannelMessage> {
+    const raw = await this.rest.patch<Record<string, unknown>>(
+      `/api/v1/channels/${channelId}/messages/${messageId}`,
+      { content },
+    );
+    return mapChannelMessage(raw);
+  }
+
   /** Get members of a community (paginated). */
   async getMembers(communityId: string, opts?: PageOptions): Promise<PageResult<Member>> {
     const query = buildPageQuery(opts);
@@ -580,6 +609,7 @@ export class ConstellClient {
     data: Uint8Array<ArrayBuffer>,
     filename: string,
     contentType: string,
+    onProgress?: (fraction: number) => void,
   ): Promise<FileInfo> {
     const formData = new FormData();
     formData.append(
@@ -587,9 +617,10 @@ export class ConstellClient {
       new Blob([data], { type: contentType }),
       filename,
     );
-    const raw = await this.rest.upload<Record<string, unknown>>(
+    const raw = await this.rest.uploadWithProgress<Record<string, unknown>>(
       "/api/v1/files/upload",
       formData,
+      onProgress,
     );
     return mapFileInfo(raw);
   }
@@ -731,7 +762,7 @@ export class ConstellClient {
             url: a.url,
             thumbnailUrl: a.thumbnailUrl,
           })),
-          seq: 0, // DMReceivedEvent doesn't carry seq; REST history is authoritative for seq
+          seq: Number(dm.seq),
         });
         break;
       }
@@ -755,7 +786,7 @@ export class ConstellClient {
             url: a.url,
             thumbnailUrl: a.thumbnailUrl,
           })),
-          seq: 0, // ChannelMessageEvent doesn't carry seq; REST history is authoritative for seq
+          seq: Number(cm.seq),
         });
         break;
       }
@@ -790,12 +821,17 @@ export class ConstellClient {
       }
 
       case ServerEventType.ACK: {
-        // Resolve the matching pending request
+        // Resolve the matching pending request with the server-assigned
+        // message id + seq (populated for SEND_* acks; empty/0 otherwise) so
+        // the sender can reconcile its optimistic local copy.
         const pending = this.pendingRequests.get(event.requestId);
         if (pending) {
           clearTimeout(pending.timer);
           this.pendingRequests.delete(event.requestId);
-          pending.resolve(undefined);
+          pending.resolve({
+            messageId: event.ackMessageId,
+            seq: Number(event.ackSeq),
+          });
         }
         break;
       }
@@ -832,8 +868,8 @@ export class ConstellClient {
    * - resolves when the server sends an ACK with matching requestId
    * - rejects on timeout (5s) or when an ERROR event arrives
    */
-  private sendWithAck(requestId: string, frame: Uint8Array): Promise<unknown> {
-    return new Promise<unknown>((resolve, reject) => {
+  private sendWithAck(requestId: string, frame: Uint8Array): Promise<MessageAck> {
+    return new Promise<MessageAck>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new NetworkError(`Request timed out (id=${requestId})`));

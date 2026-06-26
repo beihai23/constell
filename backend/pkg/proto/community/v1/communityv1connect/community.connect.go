@@ -81,6 +81,12 @@ const (
 	// CommunityServiceGetMessagesProcedure is the fully-qualified name of the CommunityService's
 	// GetMessages RPC.
 	CommunityServiceGetMessagesProcedure = "/community.v1.CommunityService/GetMessages"
+	// CommunityServiceDeleteMessageProcedure is the fully-qualified name of the CommunityService's
+	// DeleteMessage RPC.
+	CommunityServiceDeleteMessageProcedure = "/community.v1.CommunityService/DeleteMessage"
+	// CommunityServiceEditMessageProcedure is the fully-qualified name of the CommunityService's
+	// EditMessage RPC.
+	CommunityServiceEditMessageProcedure = "/community.v1.CommunityService/EditMessage"
 )
 
 // CommunityServiceClient is a client for the community.v1.CommunityService service.
@@ -105,6 +111,11 @@ type CommunityServiceClient interface {
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	GetMessages(context.Context, *connect.Request[v1.GetMessagesRequest]) (*connect.Response[v1.GetMessagesResponse], error)
+	// Delete a channel message. Only the message author may delete (MSG-DEL-2).
+	DeleteMessage(context.Context, *connect.Request[v1.DeleteMessageRequest]) (*connect.Response[v1.DeleteMessageResponse], error)
+	// Edit a channel message's content. Only the author may edit; bumps
+	// updated_at so clients can show an "(edited)" marker (MSG-EDIT-1).
+	EditMessage(context.Context, *connect.Request[v1.EditMessageRequest]) (*connect.Response[v1.EditMessageResponse], error)
 }
 
 // NewCommunityServiceClient constructs a client for the community.v1.CommunityService service. By
@@ -214,6 +225,18 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(communityServiceMethods.ByName("GetMessages")),
 			connect.WithClientOptions(opts...),
 		),
+		deleteMessage: connect.NewClient[v1.DeleteMessageRequest, v1.DeleteMessageResponse](
+			httpClient,
+			baseURL+CommunityServiceDeleteMessageProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("DeleteMessage")),
+			connect.WithClientOptions(opts...),
+		),
+		editMessage: connect.NewClient[v1.EditMessageRequest, v1.EditMessageResponse](
+			httpClient,
+			baseURL+CommunityServiceEditMessageProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("EditMessage")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -235,6 +258,8 @@ type communityServiceClient struct {
 	listMembers     *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	getMessages     *connect.Client[v1.GetMessagesRequest, v1.GetMessagesResponse]
+	deleteMessage   *connect.Client[v1.DeleteMessageRequest, v1.DeleteMessageResponse]
+	editMessage     *connect.Client[v1.EditMessageRequest, v1.EditMessageResponse]
 }
 
 // CreateCommunity calls community.v1.CommunityService.CreateCommunity.
@@ -317,6 +342,16 @@ func (c *communityServiceClient) GetMessages(ctx context.Context, req *connect.R
 	return c.getMessages.CallUnary(ctx, req)
 }
 
+// DeleteMessage calls community.v1.CommunityService.DeleteMessage.
+func (c *communityServiceClient) DeleteMessage(ctx context.Context, req *connect.Request[v1.DeleteMessageRequest]) (*connect.Response[v1.DeleteMessageResponse], error) {
+	return c.deleteMessage.CallUnary(ctx, req)
+}
+
+// EditMessage calls community.v1.CommunityService.EditMessage.
+func (c *communityServiceClient) EditMessage(ctx context.Context, req *connect.Request[v1.EditMessageRequest]) (*connect.Response[v1.EditMessageResponse], error) {
+	return c.editMessage.CallUnary(ctx, req)
+}
+
 // CommunityServiceHandler is an implementation of the community.v1.CommunityService service.
 type CommunityServiceHandler interface {
 	// --- Community ---
@@ -339,6 +374,11 @@ type CommunityServiceHandler interface {
 	// --- Channel Messages ---
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	GetMessages(context.Context, *connect.Request[v1.GetMessagesRequest]) (*connect.Response[v1.GetMessagesResponse], error)
+	// Delete a channel message. Only the message author may delete (MSG-DEL-2).
+	DeleteMessage(context.Context, *connect.Request[v1.DeleteMessageRequest]) (*connect.Response[v1.DeleteMessageResponse], error)
+	// Edit a channel message's content. Only the author may edit; bumps
+	// updated_at so clients can show an "(edited)" marker (MSG-EDIT-1).
+	EditMessage(context.Context, *connect.Request[v1.EditMessageRequest]) (*connect.Response[v1.EditMessageResponse], error)
 }
 
 // NewCommunityServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -444,6 +484,18 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 		connect.WithSchema(communityServiceMethods.ByName("GetMessages")),
 		connect.WithHandlerOptions(opts...),
 	)
+	communityServiceDeleteMessageHandler := connect.NewUnaryHandler(
+		CommunityServiceDeleteMessageProcedure,
+		svc.DeleteMessage,
+		connect.WithSchema(communityServiceMethods.ByName("DeleteMessage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	communityServiceEditMessageHandler := connect.NewUnaryHandler(
+		CommunityServiceEditMessageProcedure,
+		svc.EditMessage,
+		connect.WithSchema(communityServiceMethods.ByName("EditMessage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/community.v1.CommunityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CommunityServiceCreateCommunityProcedure:
@@ -478,6 +530,10 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 			communityServiceSendMessageHandler.ServeHTTP(w, r)
 		case CommunityServiceGetMessagesProcedure:
 			communityServiceGetMessagesHandler.ServeHTTP(w, r)
+		case CommunityServiceDeleteMessageProcedure:
+			communityServiceDeleteMessageHandler.ServeHTTP(w, r)
+		case CommunityServiceEditMessageProcedure:
+			communityServiceEditMessageHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -549,4 +605,12 @@ func (UnimplementedCommunityServiceHandler) SendMessage(context.Context, *connec
 
 func (UnimplementedCommunityServiceHandler) GetMessages(context.Context, *connect.Request[v1.GetMessagesRequest]) (*connect.Response[v1.GetMessagesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.GetMessages is not implemented"))
+}
+
+func (UnimplementedCommunityServiceHandler) DeleteMessage(context.Context, *connect.Request[v1.DeleteMessageRequest]) (*connect.Response[v1.DeleteMessageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.DeleteMessage is not implemented"))
+}
+
+func (UnimplementedCommunityServiceHandler) EditMessage(context.Context, *connect.Request[v1.EditMessageRequest]) (*connect.Response[v1.EditMessageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("community.v1.CommunityService.EditMessage is not implemented"))
 }

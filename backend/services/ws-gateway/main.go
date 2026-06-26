@@ -197,7 +197,7 @@ type connectUserSvcClient struct {
 	client userv1connect.UserServiceClient
 }
 
-func (c *connectUserSvcClient) SendDM(ctx context.Context, senderID, receiverID, content string) (string, string, error) {
+func (c *connectUserSvcClient) SendDM(ctx context.Context, senderID, receiverID, content string) (string, int64, error) {
 	req := connect.NewRequest(&userv1.SendDMRequest{
 		TargetUserId: receiverID,
 		Content:      content,
@@ -207,22 +207,22 @@ func (c *connectUserSvcClient) SendDM(ctx context.Context, senderID, receiverID,
 	}
 	resp, err := c.client.SendDM(ctx, req)
 	if err != nil {
-		return "", "", fmt.Errorf("SendDM RPC: %w", err)
+		return "", 0, fmt.Errorf("SendDM RPC: %w", err)
 	}
 
 	msg := resp.Msg.GetMessage()
 	if msg == nil {
-		return "", "", fmt.Errorf("SendDM returned nil message")
+		return "", 0, fmt.Errorf("SendDM returned nil message")
 	}
 
-	return msg.Id, time.Unix(msg.CreatedAt, 0).Format(time.RFC3339), nil
+	return msg.Id, msg.Seq, nil
 }
 
 type connectCommunitySvcClient struct {
 	client communityv1connect.CommunityServiceClient
 }
 
-func (c *connectCommunitySvcClient) SendMessage(ctx context.Context, senderID, channelID, content string) (string, string, error) {
+func (c *connectCommunitySvcClient) SendMessage(ctx context.Context, senderID, channelID, content string) (string, int64, error) {
 	req := connect.NewRequest(&communityv1.SendMessageRequest{
 		ChannelId: channelID,
 		Content:   content,
@@ -232,15 +232,15 @@ func (c *connectCommunitySvcClient) SendMessage(ctx context.Context, senderID, c
 	}
 	resp, err := c.client.SendMessage(ctx, req)
 	if err != nil {
-		return "", "", fmt.Errorf("SendMessage RPC: %w", err)
+		return "", 0, fmt.Errorf("SendMessage RPC: %w", err)
 	}
 
 	msg := resp.Msg.GetMessage()
 	if msg == nil {
-		return "", "", fmt.Errorf("SendMessage returned nil message")
+		return "", 0, fmt.Errorf("SendMessage returned nil message")
 	}
 
-	return msg.Id, time.Unix(msg.CreatedAt, 0).Format(time.RFC3339), nil
+	return msg.Id, msg.Seq, nil
 }
 
 var (

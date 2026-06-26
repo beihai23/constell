@@ -231,7 +231,7 @@ function RailButton({ selected, onClick, label, badge, children }: RailButtonPro
 
       {/* Unread badge */}
       {badge !== undefined && badge > 0 && (
-        <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-[10px] font-bold leading-none text-white">
+        <span data-slot="unread-badge" className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f38ba8] px-1 text-[10px] font-bold leading-none text-white">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

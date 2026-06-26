@@ -64,11 +64,11 @@ func notImplemented() http.HandlerFunc {
 }
 
 // registerRoutes sets up all REST routes on the chi router.
-func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, redisClient *goredis.Client) {
+func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, redisClient *goredis.Client, filesPublicBase string) {
 	// Create handler instances.
 	authHandler := handlers.NewAuthHandler(clients.Auth)
 	userHandler := handlers.NewUserHandler(clients.User, redisClient)
-	communityHandler := handlers.NewCommunityHandler(clients.Community)
+	communityHandler := handlers.NewCommunityHandler(clients.Community, filesPublicBase)
 	fileHandler := handlers.NewFileHandler(clients.File)
 	searchHandler := handlers.NewSearchHandler(clients.Search)
 	notifyHandler := handlers.NewNotifyHandler(clients.Notify)
@@ -120,6 +120,8 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, r
 
 			// Self-join (discovery).
 			r.Post("/join", communityHandler.JoinCommunity)
+			// Self-leave.
+			r.Delete("/leave", communityHandler.LeaveCommunity)
 
 			// Roles under a community.
 			r.Post("/roles", notImplemented())                      // CreateRole RPC added in Task 17
@@ -132,6 +134,8 @@ func registerRoutes(r chi.Router, clients *handlers.Clients, jwtSecret string, r
 		// Channel message routes.
 		r.Post("/channels/{id}/messages", communityHandler.SendMessage)
 		r.Get("/channels/{id}/messages", communityHandler.GetHistory)
+		r.Delete("/channels/{id}/messages/{mid}", communityHandler.DeleteMessage)
+		r.Patch("/channels/{id}/messages/{mid}", communityHandler.EditMessage)
 
 		// File routes.
 		r.Post("/files/upload", fileHandler.UploadFile)
