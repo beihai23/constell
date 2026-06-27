@@ -34,17 +34,21 @@ export function ChannelView() {
 
   // Subscribe to channel + clear unreads on mount; unsubscribe on unmount.
   // Also mark this channel as active so incoming messages don't tally unread
-  // while the user is viewing it (UNREAD-1).
+  // while the user is viewing it (UNREAD-1). And tell the SERVER the channel
+  // is read (not just local) so its unread count is accurate on next load.
   useEffect(() => {
     if (!channelId) return;
 
     client.subscribeChannel(channelId);
     clearUnread('channel', channelId);
     setActiveChannel(channelId);
+    client.markChannelRead(channelId).catch(() => { /* non-fatal */ });
 
     return () => {
       client.unsubscribeChannel(channelId);
       setActiveChannel(null);
+      // Catch up: any messages seen during this view are now read server-side.
+      client.markChannelRead(channelId).catch(() => { /* non-fatal */ });
     };
   }, [channelId, client, clearUnread, setActiveChannel]);
 

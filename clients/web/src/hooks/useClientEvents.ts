@@ -38,6 +38,11 @@ export function useClientEvents() {
       const activeChannelId = useUIStore.getState().activeChannelId;
       if (msg.authorId !== user?.id && msg.channelId !== activeChannelId) {
         incrementUnread('channel', msg.channelId);
+      } else if (msg.channelId === activeChannelId && msg.authorId !== user?.id) {
+        // Keep the SERVER in sync: the user is viewing this channel, so tell
+        // the server the message is read (otherwise its unread count drifts
+        // and overwrites the correct local 0 on next load). Fire-and-forget.
+        client.markChannelRead(msg.channelId).catch(() => {});
       }
     };
 
