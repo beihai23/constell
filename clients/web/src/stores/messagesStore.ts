@@ -7,11 +7,28 @@ type SendStatus = 'sending' | 'sent' | 'failed';
  * Sort key for a message. Real messages carry a positive server-assigned seq
  * (BIGINT IDENTITY starts at 1). A live-pushed message arrives with seq: 0
  * (the WS push payload doesn't carry seq — REST is authoritative), and an
- * optimistic pre-ack message has no seq yet. Both must sort to the END
- * (newest position), not the front — so any falsy/≤0 seq maps to MAX.
+ * optimistic pre-ack message has no seq yet. seq is the tiebreaker for
+ * same-millisecond messages (created_at collides for rapid sends), but it is
+ * NOT the primary sort key — see byChrono.
  */
 const hasSeq = (m: { seq?: number }): m is { seq: number } => !!m.seq && m.seq > 0;
 const seqOr = (m: { seq?: number }) => (hasSeq(m) ? m.seq : Number.MAX_SAFE_INTEGER);
+
+/**
+ * Primary chronological comparator: by createdAt (ms) ascending, with seq as a
+ * tiebreaker for same-millisecond collisions.
+ *
+ * Sorting purely by seq is WRONG once a stale seq:0 message is in the store.
+ * Live-pushed messages arrive with seq:0 (the WS push omits seq); backfill
+ * normally reconciles them to their real seq, but if the backfill cursor has
+ * already advanced past their real seq they stay seq:0 forever. Under the old
+ * seq-only sort, seq:0 mapped to MAX and flung those (possibly OLD) messages
+ * to the bottom — so a message from 11:59 rendered below a message from 23:08.
+ * createdAt is authoritative for chronology (server-set for real/pushed,
+ * client-set for optimistic and reconciled on ACK), so it's the primary key.
+ */
+const byChrono = (a: { createdAt?: number; seq?: number }, b: { createdAt?: number; seq?: number }) =>
+  (a.createdAt ?? 0) - (b.createdAt ?? 0) || seqOr(a) - seqOr(b);
 
 /**
  * Merge incoming into existing, dedup by id, sort by seq ascending.
@@ -29,7 +46,7 @@ function mergeByIdSeq<T extends { id: string; seq?: number }>(existing: T[], inc
     if (cur && hasSeq(cur) && !hasSeq(m)) continue; // keep the seq'd copy
     byId.set(m.id, m); // overwrite with freshest
   }
-  return [...byId.values()].sort((a, b) => seqOr(a) - seqOr(b));
+  return [...byId.values()].sort(byChrono);
 }
 
 interface MessagesState {
@@ -57,7 +74,7 @@ export const useMessagesStore = create<MessagesState>((set) => ({
   setChannelMessages: (channelId, messages) =>
     set((state) => {
       const channelMessages = new Map(state.channelMessages);
-      channelMessages.set(channelId, [...messages].sort((a, b) => seqOr(a) - seqOr(b)));
+      channelMessages.set(channelId, [...messages].sort(byChrono));
       return { channelMessages };
     }),
 
@@ -89,7 +106,7 @@ export const useMessagesStore = create<MessagesState>((set) => ({
   setDMMessages: (peerId, messages) =>
     set((state) => {
       const dmMessages = new Map(state.dmMessages);
-      dmMessages.set(peerId, [...messages].sort((a, b) => seqOr(a) - seqOr(b)));
+      dmMessages.set(peerId, [...messages].sort(byChrono));
       return { dmMessages };
     }),
 
