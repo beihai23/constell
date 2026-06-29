@@ -37,20 +37,6 @@ type MessageCreatedEvent struct {
 	Seq         int64    `json:"seq"`
 }
 
-// MemberJoinedEvent represents a member joining a community.
-type MemberJoinedEvent struct {
-	CommunityID string   `json:"community_id"`
-	UserID      string   `json:"user_id"`
-	ChannelIDs  []string `json:"channel_ids"`
-}
-
-// MemberLeftEvent represents a member leaving a community.
-type MemberLeftEvent struct {
-	CommunityID string   `json:"community_id"`
-	UserID      string   `json:"user_id"`
-	ChannelIDs  []string `json:"channel_ids"`
-}
-
 // ---------- Push payload ----------
 
 // NotificationPush matches the WS Gateway PushPayload format.
@@ -89,8 +75,6 @@ func (s *Subscriber) SubscribeAll() error {
 	}{
 		{"constell.dm.created", s.handleDMCreated},
 		{"constell.message.created", s.handleMessageCreated},
-		{"constell.member.joined", s.handleMemberJoined},
-		{"constell.member.left", s.handleMemberLeft},
 		{"constell.user.online", s.handleUserOnline},
 		{"constell.user.offline", s.handleUserOffline},
 	}
@@ -122,26 +106,13 @@ func (s *Subscriber) handleDMCreated(msg *nats.Msg) {
 		return
 	}
 
-	// 1. INCR dm_msg_count for the conversation.
-	if err := s.store.IncrementDMMsgCount(ctx, evt.ConversationID); err != nil {
-		slog.Error("increment DM count", "error", err, "conv_id", evt.ConversationID)
-	} else {
-		// The sender has seen their own message — advance their read pointer to
-		// the new total so the conversation isn't flagged unread for them.
-		if err := s.store.MarkDMRead(ctx, evt.SenderID, evt.ConversationID); err != nil {
-			slog.Error("advance sender read pointer", "error", err, "conv_id", evt.ConversationID)
-		}
+	// 1. Advance the sender's read cursor to this message's seq — they've seen
+	//    their own message, so the conversation must not be flagged unread.
+	if err := s.store.AdvanceDMRead(ctx, evt.SenderID, evt.ConversationID, evt.Seq); err != nil {
+		slog.Error("advance sender read cursor", "error", err, "conv_id", evt.ConversationID)
 	}
 
-	// 2. SADD conversation to both sender and receiver.
-	if err := s.store.AddConversationToUser(ctx, evt.SenderID, evt.ConversationID); err != nil {
-		slog.Error("add conversation to sender", "error", err)
-	}
-	if err := s.store.AddConversationToUser(ctx, evt.ReceiverID, evt.ConversationID); err != nil {
-		slog.Error("add conversation to receiver", "error", err)
-	}
-
-	// 3. Push notification to the receiver.
+	// 2. Push notification to the receiver.
 	push := NotificationPush{
 		Targets:   []string{evt.ReceiverID},
 		EventType: "DM_RECEIVED",
@@ -168,9 +139,13 @@ func (s *Subscriber) handleMessageCreated(msg *nats.Msg) {
 		return
 	}
 
-	// 1. INCR channel_msg_count.
-	if err := s.store.IncrementChannelMsgCount(ctx, evt.ChannelID); err != nil {
-		slog.Error("increment channel count", "error", err, "channel_id", evt.ChannelID)
+	// 1. Advance the sender's read cursor to this message's seq so their own
+	//    message isn't flagged unread. Other members' unread is implicit — their
+	//    cursors lag behind this seq and surface on the next get-unread read.
+	if evt.SenderID != "" {
+		if err := s.store.AdvanceChannelRead(ctx, evt.SenderID, evt.ChannelID, evt.Seq); err != nil {
+			slog.Error("advance sender read cursor", "error", err, "channel_id", evt.ChannelID)
+		}
 	}
 
 	// 2. Push notification to all members except sender.
@@ -197,42 +172,6 @@ func (s *Subscriber) handleMessageCreated(msg *nats.Msg) {
 		for _, target := range targets {
 			s.pushToUser(ctx, target, push)
 		}
-	}
-
-	msg.Ack()
-}
-
-func (s *Subscriber) handleMemberJoined(msg *nats.Msg) {
-	ctx := context.Background()
-
-	var evt MemberJoinedEvent
-	if err := json.Unmarshal(msg.Data, &evt); err != nil {
-		slog.Error("unmarshal member joined event", "error", err)
-		msg.Ack()
-		return
-	}
-
-	// SADD channels to user's channel set.
-	if err := s.store.AddChannelsToUser(ctx, evt.UserID, evt.ChannelIDs); err != nil {
-		slog.Error("add channels to user", "error", err, "user_id", evt.UserID)
-	}
-
-	msg.Ack()
-}
-
-func (s *Subscriber) handleMemberLeft(msg *nats.Msg) {
-	ctx := context.Background()
-
-	var evt MemberLeftEvent
-	if err := json.Unmarshal(msg.Data, &evt); err != nil {
-		slog.Error("unmarshal member left event", "error", err)
-		msg.Ack()
-		return
-	}
-
-	// SREM channels from user's channel set.
-	if err := s.store.RemoveChannelsFromUser(ctx, evt.UserID, evt.ChannelIDs); err != nil {
-		slog.Error("remove channels from user", "error", err, "user_id", evt.UserID)
 	}
 
 	msg.Ack()
