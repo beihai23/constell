@@ -4,31 +4,53 @@ import type { ChannelMessage, DMMessage } from '@constell/sdk-js';
 type SendStatus = 'sending' | 'sent' | 'failed';
 
 /**
- * Sort key for a message. Real messages carry a positive server-assigned seq
- * (BIGINT IDENTITY starts at 1). A live-pushed message arrives with seq: 0
- * (the WS push payload doesn't carry seq — REST is authoritative), and an
- * optimistic pre-ack message has no seq yet. seq is the tiebreaker for
- * same-millisecond messages (created_at collides for rapid sends), but it is
- * NOT the primary sort key — see byChrono.
+ * A message carries a server-assigned `seq` (BIGINT IDENTITY — monotonic and
+ * unique per insert) once acknowledged: in REST history/backfill, in the live
+ * WS push (the push carries seq), and after optimistic→real reconciliation.
+ * Only a brand-new optimistic message (pre-ACK) lacks seq.
  */
 const hasSeq = (m: { seq?: number }): m is { seq: number } => !!m.seq && m.seq > 0;
+// A seq-less (optimistic, pre-ACK) message was just sent → sort as newest.
 const seqOr = (m: { seq?: number }) => (hasSeq(m) ? m.seq : Number.MAX_SAFE_INTEGER);
 
 /**
- * Primary chronological comparator: by createdAt (ms) ascending, with seq as a
- * tiebreaker for same-millisecond collisions.
+ * Authoritative message order: by `seq` ascending, with createdAt only as a
+ * tiebreaker for same-seq collisions / a fallback between two seq-less
+ * optimistic messages.
  *
- * Sorting purely by seq is WRONG once a stale seq:0 message is in the store.
- * Live-pushed messages arrive with seq:0 (the WS push omits seq); backfill
- * normally reconciles them to their real seq, but if the backfill cursor has
- * already advanced past their real seq they stay seq:0 forever. Under the old
- * seq-only sort, seq:0 mapped to MAX and flung those (possibly OLD) messages
- * to the bottom — so a message from 11:59 rendered below a message from 23:08.
- * createdAt is authoritative for chronology (server-set for real/pushed,
- * client-set for optimistic and reconciled on ACK), so it's the primary key.
+ * seq is the only reliable total order here. createdAt is NOT: the server
+ * emits it as Unix SECONDS (community-service `m.CreatedAt.Unix()`), while
+ * optimistic messages use `Date.now()` MILLISECONDS (ChatInput) and the SDK
+ * contract claims milliseconds — so the store holds a 1000× mix of seconds and
+ * milliseconds. Sorting by createdAt scrambles adjacent messages whenever an
+ * optimistic (ms) message coexists with server (seconds) messages — the "wrong
+ * order" bug. (This is the second pass at it: an earlier createdAt-primary sort
+ * replaced a seq sort over a now-obsolete "push omits seq" worry. The push
+ * carries seq today, so seq is safe and is the correct primary key.)
  */
-const byChrono = (a: { createdAt?: number; seq?: number }, b: { createdAt?: number; seq?: number }) =>
-  (a.createdAt ?? 0) - (b.createdAt ?? 0) || seqOr(a) - seqOr(b);
+export const byChrono = (a: { createdAt?: number; seq?: number }, b: { createdAt?: number; seq?: number }) =>
+  seqOr(a) - seqOr(b) || (a.createdAt ?? 0) - (b.createdAt ?? 0);
+
+/**
+ * Assign a local "high-water" seq to an optimistic (seq-less) message so it
+ * sorts into its true position instead of being flung to the end of the list.
+ *
+ * local seq = max(seq already in the list — including earlier optimistic locals)
+ * + 1. In the common (no-concurrency) case the server assigns the message the
+ * very next seq, so on ACK the real seq equals this local value and the message
+ * does not move. If a newer real message arrives during the ACK round-trip its
+ * seq is higher, so it still sorts AFTER the optimistic → no misorder. (The only
+ * residual is a sub-RTT concurrency burst where other users grab the intervening
+ * seqs; that small jump self-heals on ACK.)
+ *
+ * Real messages (seq > 0) are returned unchanged. Exported for unit tests.
+ */
+export function withLocalSeq<T extends { seq?: number }>(existing: { seq?: number }[], m: T): T {
+  if (hasSeq(m)) return m;
+  let max = 0;
+  for (const x of existing) if (hasSeq(x) && x.seq > max) max = x.seq;
+  return { ...m, seq: max + 1 };
+}
 
 /**
  * Merge incoming into existing, dedup by id, sort by seq ascending.
@@ -79,11 +101,13 @@ export const useMessagesStore = create<MessagesState>((set) => ({
     }),
 
   // Idempotent: a duplicate id (from backfill + live push overlap) is a no-op.
+  // An optimistic (seq-less) message gets a local high-water seq (withLocalSeq)
+  // so it lands in its true position instead of the end of the list.
   appendChannelMessage: (channelId, message) =>
     set((state) => {
       const channelMessages = new Map(state.channelMessages);
       const existing = channelMessages.get(channelId) ?? [];
-      channelMessages.set(channelId, mergeByIdSeq(existing, [message]));
+      channelMessages.set(channelId, mergeByIdSeq(existing, [withLocalSeq(existing, message)]));
       return { channelMessages };
     }),
 
@@ -114,7 +138,7 @@ export const useMessagesStore = create<MessagesState>((set) => ({
     set((state) => {
       const dmMessages = new Map(state.dmMessages);
       const existing = dmMessages.get(peerId) ?? [];
-      dmMessages.set(peerId, mergeByIdSeq(existing, [message]));
+      dmMessages.set(peerId, mergeByIdSeq(existing, [withLocalSeq(existing, message)]));
       return { dmMessages };
     }),
 
